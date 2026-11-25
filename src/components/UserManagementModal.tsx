@@ -1,7 +1,7 @@
 /**
  * ==========================================
  * File: src/components/UserManagementModal.tsx
- * Project: AdBoard
+ * Project: WallpaperWizard
  * Purpose:
  * Superadmin surface to invite and remove editor accounts.
  * Editors can manage media but cannot create users or change
@@ -11,12 +11,12 @@
 
 import React, { useEffect, useState } from 'react';
 import { UserService } from '../services/userService';
-import { useFirebase } from '../contexts/FirebaseContext';
+import { useAuth } from '../contexts/AuthContext';
 import { ManagedUser } from '../types';
 import { X, Users as UsersIcon, UserPlus, Trash2, Check, AlertCircle, ShieldCheck } from 'lucide-react';
 
 export default function UserManagementModal({ onClose }: { onClose: () => void }) {
-  const { user } = useFirebase();
+  const { user } = useAuth();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState('');
@@ -90,8 +90,8 @@ export default function UserManagementModal({ onClose }: { onClose: () => void }
 
         <div className="p-6 space-y-6">
           <p className="text-[11px] text-slate-500 leading-relaxed">
-            Editors can add, update, and remove advertisements. Only you (the superadmin)
-            can create users or change access restrictions.
+            Editors can add, schedule, and push wallpapers. Only superadmins can manage
+            devices, push settings, users, and access restrictions.
           </p>
 
           {message && (

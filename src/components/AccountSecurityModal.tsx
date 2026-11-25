@@ -1,7 +1,7 @@
 /**
  * ==========================================
  * File: src/components/AccountSecurityModal.tsx
- * Project: AdBoard
+ * Project: WallpaperWizard
  * Purpose:
  * Administrator profile controls: password change and management
  * of two-factor authenticator apps (add several, remove, QR setup).
@@ -32,7 +32,6 @@ export default function AccountSecurityModal({ email, onClose }: { email: string
   const [passwordMessage, setPasswordMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   // 2FA state
-  const twoFactorSupported = AccountService.supportsTwoFactor();
   const [factors, setFactors] = useState<TwoFactorFactor[]>([]);
   const [factorsError, setFactorsError] = useState('');
   const [enrollment, setEnrollment] = useState<TwoFactorEnrollment | null>(null);
@@ -43,7 +42,6 @@ export default function AccountSecurityModal({ email, onClose }: { email: string
   const [enrollMessage, setEnrollMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   const refreshFactors = async () => {
-    if (!twoFactorSupported) return;
     try {
       setFactors(await AccountService.listTwoFactorFactors());
       setFactorsError('');
@@ -60,9 +58,7 @@ export default function AccountSecurityModal({ email, onClose }: { email: string
   // Render a QR image locally whenever the backend gives us an otpauth URL
   useEffect(() => {
     let cancelled = false;
-    if (enrollment?.qrCode) {
-      setEnrollQrDataUrl(enrollment.qrCode);
-    } else if (enrollment?.otpauthUrl) {
+    if (enrollment?.otpauthUrl) {
       QRCode.toDataURL(enrollment.otpauthUrl, { width: 200, margin: 1 })
         .then(url => { if (!cancelled) setEnrollQrDataUrl(url); })
         .catch(() => { if (!cancelled) setEnrollQrDataUrl(null); });
@@ -224,12 +220,6 @@ export default function AccountSecurityModal({ email, onClose }: { email: string
               <Smartphone className="w-3.5 h-3.5 text-blue-600" /> Two-Factor Authentication
             </h4>
 
-            {!twoFactorSupported ? (
-              <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-lg p-3 leading-relaxed">
-                Two-factor authentication needs a hosted backend (Firebase, Supabase, or the
-                self-hosted Docker server) to be enforced. The offline sandbox cannot provide it.
-              </div>
-            ) : (
               <>
                 <p className="text-[11px] text-slate-500 leading-relaxed">
                   Protect sign-in with one-time codes from an authenticator app
@@ -337,7 +327,6 @@ export default function AccountSecurityModal({ email, onClose }: { email: string
                   </div>
                 )}
               </>
-            )}
           </section>
         </div>
       </div>

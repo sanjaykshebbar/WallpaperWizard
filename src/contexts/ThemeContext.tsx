@@ -1,7 +1,7 @@
 /**
  * ==========================================
  * File: src/contexts/ThemeContext.tsx
- * Project: AdBoard
+ * Project: WallpaperWizard
  * Purpose:
  * Application-wide theme switching (Light, Dark, Paper).
  * The active theme is stored in localStorage and applied as a
@@ -14,7 +14,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 
 export type ThemeName = 'light' | 'dark' | 'paper';
 
-const THEME_STORAGE_KEY = 'adboard_theme';
+const THEME_STORAGE_KEY = 'ww_theme';
 
 export function getStoredTheme(): ThemeName {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);

@@ -1,7 +1,7 @@
 /**
  * ==========================================
  * File: src/components/InfoTip.tsx
- * Project: AdBoard
+ * Project: WallpaperWizard
  * Purpose:
  * Small "i" affordance that reveals a plain-English explanation
  * only while the cursor hovers over it.

@@ -1,10 +1,10 @@
 /**
  * ==========================================
  * File: src/components/AccessGate.tsx
- * Project: AdBoard
+ * Project: WallpaperWizard
  * Purpose:
- * Wraps dashboard routes (setup / login / admin) with the IP-based
- * access check. The public display board is never gated. When the
+ * Wraps dashboard routes with the IP-based
+ * access check. When the
  * device is not authorized, a clear error page is shown instead.
  * ==========================================
  */
@@ -20,11 +20,6 @@ export default function AccessGate({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Backends without IP support (sandbox / plain Firebase) are always allowed
-      if (!SecurityService.isSupported()) {
-        if (!cancelled) setState('allowed');
-        return;
-      }
       try {
         const res = await SecurityService.checkAccess();
         if (cancelled) return;
@@ -59,7 +54,7 @@ export default function AccessGate({ children }: { children: React.ReactNode }) 
           </div>
           <div className="p-6 space-y-3">
             <p className="text-sm text-slate-300 leading-relaxed">
-              This device is not authorized to access the AdBoard administration dashboard.
+              This device is not authorized to access the WallpaperWizard dashboard.
             </p>
             {result?.reason && (
               <p className="text-xs text-slate-400 leading-relaxed">{result.reason}</p>

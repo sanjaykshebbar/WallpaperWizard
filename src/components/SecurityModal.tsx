@@ -1,7 +1,7 @@
 /**
  * ==========================================
  * File: src/components/SecurityModal.tsx
- * Project: AdBoard
+ * Project: WallpaperWizard
  * Purpose:
  * Superadmin surface to manage IP-based dashboard access.
  * Off by default. Supports exact IPv4/IPv6 addresses and IPv4
@@ -15,8 +15,8 @@ import { isValidAllowlistEntry } from '../shared/ipMatch';
 import { SecurityConfig } from '../types';
 import { X, ShieldCheck, Plus, Trash2, Check, AlertCircle, Globe } from 'lucide-react';
 
-export default function SecurityModal({ userId, onClose }: { userId: string; onClose: () => void }) {
-  const [config, setConfig] = useState<SecurityConfig>({ ipRestrictionEnabled: false, allowedIps: [], viewerApprovalRequired: false });
+export default function SecurityModal({ onClose }: { onClose: () => void }) {
+  const [config, setConfig] = useState<SecurityConfig>({ ipRestrictionEnabled: false, allowedIps: [] });
   const [loading, setLoading] = useState(true);
   const [clientIp, setClientIp] = useState<string | null>(null);
   const [newEntry, setNewEntry] = useState('');
@@ -69,7 +69,7 @@ export default function SecurityModal({ userId, onClose }: { userId: string; onC
     }
     setBusy(true);
     try {
-      await SecurityService.updateConfig(config, userId);
+      await SecurityService.updateConfig(config);
       setMessage({ ok: true, text: 'Access policy saved.' });
     } catch (err: any) {
       setMessage({ ok: false, text: err.message || 'Could not save the access policy.' });
@@ -96,16 +96,8 @@ export default function SecurityModal({ userId, onClose }: { userId: string; onC
             <p className="text-xs text-slate-400 font-mono">Loading policy...</p>
           ) : (
             <>
-              <div className="bg-amber-50 border border-amber-200 text-amber-900 text-[11px] rounded-lg p-3 leading-relaxed">
-                <strong className="font-bold">Beta — how enforcement works:</strong>
-                <ul className="list-disc pl-4 mt-1 space-y-0.5">
-                  <li><strong>Self-hosted (Docker):</strong> enforced on the server for every request. Fully effective, and can allow individual devices by their private (LAN) IP.</li>
-                  <li><strong>Vercel:</strong> enforced at the edge <em>only if</em> you enable the included <code>middleware.ts</code> (see SUPABASE.md). Otherwise the check is in-browser and best-effort.</li>
-                  <li><strong>Office / cellular note:</strong> all devices behind one router share a single public IP, so public-IP rules cannot target individual devices. For per-device control use <strong>Display Viewers → approve/deny</strong> instead.</li>
-                </ul>
-              </div>
               <p className="text-[11px] text-slate-500 leading-relaxed">
-                Restrict who can open the dashboard by IP address or IPv4 CIDR range. <strong>Off by default.</strong>
+                Restrict who can open the dashboard by IP address or IPv4 CIDR range. Enforced by the server on every request. <strong>Off by default.</strong>
               </p>
 
               {message && (

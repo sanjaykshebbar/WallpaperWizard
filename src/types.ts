@@ -1,25 +1,13 @@
 /**
- * ==========================================
- * File: src/types.ts
- * Project: AdBoard V3
- * Purpose:
- * Central directory for application-wide typed
- * models, enumerations, databases, and structural
- * configuration contracts.
- * ==========================================
+ * Shared data contracts for WallpaperWizard (browser and server).
  */
-
-export interface InitConfig {
-  setupCompleted: boolean;
-  setupCompletedAt: string;
-}
 
 export type AdminRole = 'superadmin' | 'editor';
 
 export interface UserProfile {
   userId: string;
   email: string;
-  role: AdminRole | 'admin';
+  role: AdminRole;
   createdAt: string;
   tutorialSeen?: boolean;
 }
@@ -35,53 +23,34 @@ export interface ManagedUser {
 export interface SecurityConfig {
   ipRestrictionEnabled: boolean;
   allowedIps: string[]; // exact IPv4/IPv6 addresses or IPv4 CIDR ranges
-  viewerApprovalRequired: boolean; // new display screens must be approved before showing content
   updatedBy?: string | null;
   updatedAt?: string | null;
-}
-
-export type ViewerStatus = 'pending' | 'approved' | 'denied';
-
-export interface ViewerDevice {
-  deviceId: string;
-  label: string | null;      // admin-assigned name for the screen
-  hostname: string | null;   // reverse-DNS name (self-hosted backend only)
-  ip: string | null;
-  userAgent: string | null;
-  status: ViewerStatus;
-  firstSeen: string;
-  lastSeen: string;
-}
-
-/** Accumulated on-screen time for one media item across all displays. */
-export interface PlaytimeStat {
-  mediaId: string;
-  totalSeconds: number;
-  screenCount: number;
 }
 
 export interface AuditEntry {
   id: string | number;
   actorId: string | null;
   actorEmail: string | null;
-  action: string;       // e.g. media.create, user.delete, security.update
-  targetType: string;   // media | settings | user | security | auth
+  action: string;       // e.g. wallpaper.create, device.push, push.settings
+  targetType: string;   // wallpaper | device | push | user | security | auth
   targetId: string | null;
   details: string | null;
   createdAt: string;
 }
 
-export interface AdMedia {
+/** Who a wallpaper is for: everyone, one group, or one device. */
+export type WallpaperScope = 'org' | 'group' | 'device';
+
+export interface Wallpaper {
   id: string;
   title: string;
-  url: string;
-  type: 'image' | 'video';
+  url: string;          // /uploads/<file>
   mimeType: string;
   fileName: string;
   fileSize: number;
-  duration: number; // default display time in seconds
   isActive: boolean;
-  sortOrder: number;
+  scope: WallpaperScope;
+  target: string | null; // group name or device id; null for org
   scheduledStart: string | null; // ISO datetime
   scheduledEnd: string | null;   // ISO datetime
   ownerId: string;
@@ -89,14 +58,37 @@ export interface AdMedia {
   updatedAt: string;
 }
 
-export interface DisplaySettings {
-  kioskMode: boolean;
-  autoplaySeconds: number; // fallback slide display time
-  transitionEffect: 'fade' | 'slide' | 'zoom';
-  updatedBy: string;
-  updatedAt: string;
-  fallbackUrl?: string | null;  // default slide shown when no media is active
-  fallbackType?: 'image' | 'video' | null;
+export type DeviceOs = 'windows' | 'macos' | 'other';
+export type DeviceStatus = 'pending' | 'approved' | 'ignored';
+
+export interface Device {
+  id: string;              // SSH host-key fingerprint: stable across IP changes
+  ip: string;
+  hostname: string | null;
+  label: string | null;    // admin-assigned name
+  os: DeviceOs | null;     // null until confirmed over SSH (or guessed from the banner)
+  group: string | null;
+  status: DeviceStatus;
+  firstSeen: string;
+  lastSeen: string;
+  lastPush: { at: string; ok: boolean; message: string; wallpaperId: string | null } | null;
+  applied: { wallpaperId: string; version: string } | null; // version = wallpaper.updatedAt
+}
+
+/** Network scan + push settings. The device password never leaves the server. */
+export interface PushSettings {
+  username: string;
+  hasPassword: boolean;
+  scanRanges: string[];
+  intervalMinutes: number;
+  autoApprove: boolean;
+  updatedBy?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface WorkerStatus {
+  running: boolean;
+  lastRun: { startedAt: string; finishedAt: string | null; found: number; pushed: number; failed: number; note: string | null } | null;
 }
 
 export interface TwoFactorFactor {
@@ -109,31 +101,4 @@ export interface TwoFactorEnrollment {
   factorId: string;
   secret?: string;      // base32 secret for manual entry
   otpauthUrl?: string;  // otpauth:// URL to render as a QR code
-  qrCode?: string;      // ready-made QR image (data URI), when the backend provides one
-}
-
-export enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-export interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-    tenantId?: string | null;
-    providerInfo?: {
-      providerId?: string | null;
-      email?: string | null;
-    }[];
-  };
 }

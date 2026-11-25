@@ -1,19 +1,21 @@
-version: '3.8'
-
 services:
-  adboard:
+  wallpaperwizard:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: adboard-kiosk
+    container_name: wallpaperwizard
     ports:
       - "8080:3000"
     volumes:
-      - adboard-data:/app/data
+      - wallpaperwizard-data:/app/data
     restart: unless-stopped
     environment:
       - NODE_ENV=production
+      # Recommended: keep the password encryption key outside the data volume (see .env.example)
+      - WW_SECRET_KEY=${WW_SECRET_KEY:-}
+    # Uncomment on Linux if devices can't be reached through Docker's bridge NAT
+    # network_mode: host
 
 volumes:
-  adboard-data:
+  wallpaperwizard-data:
     driver: local

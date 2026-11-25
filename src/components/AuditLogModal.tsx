@@ -1,7 +1,7 @@
 /**
  * ==========================================
  * File: src/components/AuditLogModal.tsx
- * Project: AdBoard
+ * Project: WallpaperWizard
  * Purpose:
  * Superadmin view of the immutable audit trail: every media,
  * user, settings, security, and auth action with actor and time.
@@ -73,8 +73,8 @@ export default function AuditLogModal({ onClose }: { onClose: () => void }) {
 
         <div className="p-6 overflow-y-auto">
           <p className="text-[11px] text-slate-500 leading-relaxed mb-4">
-            Every administrative action is recorded here — advertisements, user changes,
-            display settings, and access-policy updates — with who did it and when.
+            Every administrative action is recorded here: wallpapers, devices, pushes,
+            push settings, users, and access-policy updates, with who did it and when.
           </p>
 
           {error ? (

@@ -4,7 +4,10 @@ import fs from "fs";
 import crypto from "crypto";
 import dns from "dns";
 import multer from "multer";
-import { ipIsAllowed, isValidAllowlistEntry, normalizeIp } from "./src/shared/ipMatch";
+import { ipIsAllowed, isValidAllowlistEntry, normalizeIp, expandScanRange, MAX_SCAN_HOSTS } from "./src/shared/ipMatch";
+import { resolveWallpaper } from "./src/shared/resolveWallpaper";
+import { probeBanner, fetchHostFingerprint, pushWallpaper, mapLimit } from "./devicePush";
+import type { Wallpaper, Device, WorkerStatus } from "./src/types";
 
 // Ensure persistent folders exist inside the self-contained container
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -48,73 +51,47 @@ interface AuditRecord {
   createdAt: string;
 }
 
-interface ViewerRecord {
-  deviceId: string;
-  label: string | null;
-  hostname: string | null;
-  ip: string | null;
-  userAgent: string | null;
-  status: 'pending' | 'approved' | 'denied';
-  firstSeen: string;
-  lastSeen: string;
+interface PushConfig {
+  username: string;
+  passwordEnc: string | null; // AES-256-GCM, see encryptSecret
+  scanRanges: string[];
+  intervalMinutes: number;
+  autoApprove: boolean;
+  updatedBy?: string | null;
+  updatedAt?: string | null;
 }
 
 interface DbSchema {
   setupCompleted: boolean;
-  /** Legacy single-admin record from earlier versions; migrated into users[] */
-  admin?: { email: string; passwordHash: string; totpFactors?: TotpFactor[] } | null;
   users: UserRecord[];
   security: {
     ipRestrictionEnabled: boolean;
     allowedIps: string[];
-    viewerApprovalRequired?: boolean;
     updatedBy?: string | null;
     updatedAt?: string | null;
   };
-  viewers: ViewerRecord[];
-  /** Accumulated display seconds: mediaId -> deviceId -> seconds */
-  playtime: Record<string, Record<string, number>>;
   audit: AuditRecord[];
-  displaySettings: {
-    kioskMode: boolean;
-    autoplaySeconds: number;
-    transitionEffect: string;
-    updatedBy: string;
-    updatedAt: string;
-    fallbackUrl?: string | null;
-    fallbackType?: string | null;
-  };
-  mediaItems: Array<{
-    id: string;
-    title: string;
-    url: string;
-    duration: number;
-    isActive: boolean;
-    sortOrder: number;
-    scheduledStart?: string;
-    scheduledEnd?: string;
-    ownerId: string;
-    createdAt: string;
-    updatedAt: string;
-  }>;
+  wallpapers: Wallpaper[];
+  devices: Device[];
+  push: PushConfig;
 }
+
+const DEFAULT_PUSH: PushConfig = {
+  username: "ithelpdesk",
+  passwordEnc: null,
+  scanRanges: [],
+  intervalMinutes: 15,
+  autoApprove: false
+};
 
 const DEFAULT_DB: DbSchema = {
   setupCompleted: false,
-  admin: null,
   users: [],
-  security: { ipRestrictionEnabled: false, allowedIps: [], viewerApprovalRequired: false },
-  viewers: [],
-  playtime: {},
+  security: { ipRestrictionEnabled: false, allowedIps: [] },
   audit: [],
-  displaySettings: {
-    kioskMode: false,
-    autoplaySeconds: 8,
-    transitionEffect: "fade",
-    updatedBy: "system",
-    updatedAt: new Date().toISOString()
-  },
-  mediaItems: []
+  wallpapers: [],
+  devices: [],
+  push: DEFAULT_PUSH
 };
 
 function readDb(): DbSchema {
@@ -130,29 +107,42 @@ function readDb(): DbSchema {
     return structuredClone(DEFAULT_DB);
   }
 
-  // Backfill fields introduced by newer versions
   db.users = db.users || [];
-  db.security = db.security || { ipRestrictionEnabled: false, allowedIps: [], viewerApprovalRequired: false };
-  if (db.security.viewerApprovalRequired === undefined) db.security.viewerApprovalRequired = false;
-  db.viewers = db.viewers || [];
-  db.playtime = db.playtime || {};
+  db.security = db.security || { ipRestrictionEnabled: false, allowedIps: [] };
   db.audit = db.audit || [];
-
-  // Migrate the legacy single-admin record into the users list
-  if (db.admin && db.users.length === 0) {
-    db.users.push({
-      id: "local-admin-dev",
-      email: db.admin.email,
-      passwordHash: db.admin.passwordHash,
-      role: "superadmin",
-      totpFactors: db.admin.totpFactors || [],
-      createdAt: new Date().toISOString()
-    });
-    db.admin = null;
-    writeDb(db);
-  }
-
+  db.wallpapers = db.wallpapers || [];
+  db.devices = db.devices || [];
+  db.push = { ...DEFAULT_PUSH, ...(db.push || {}) };
   return db;
+}
+
+// --- Device password encryption at rest (AES-256-GCM) ---
+// Key: WW_SECRET_KEY env var if set, otherwise a random key file beside the database.
+// shortcut: the generated key lives on the same volume as db.json, so a stolen volume exposes both; set WW_SECRET_KEY from a secret store when that matters.
+const SECRET_KEY_FILE = path.join(DATA_DIR, "secret.key");
+
+function secretKey(): Buffer {
+  if (process.env.WW_SECRET_KEY) {
+    return crypto.createHash("sha256").update(process.env.WW_SECRET_KEY).digest();
+  }
+  if (!fs.existsSync(SECRET_KEY_FILE)) {
+    fs.writeFileSync(SECRET_KEY_FILE, crypto.randomBytes(32).toString("hex"), { mode: 0o600 });
+  }
+  return Buffer.from(fs.readFileSync(SECRET_KEY_FILE, "utf-8").trim(), "hex");
+}
+
+function encryptSecret(plain: string): string {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", secretKey(), iv);
+  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  return ["v1", iv.toString("base64"), cipher.getAuthTag().toString("base64"), enc.toString("base64")].join(":");
+}
+
+function decryptSecret(stored: string): string {
+  const [, iv, tag, enc] = stored.split(":");
+  const decipher = crypto.createDecipheriv("aes-256-gcm", secretKey(), Buffer.from(iv, "base64"));
+  decipher.setAuthTag(Buffer.from(tag, "base64"));
+  return Buffer.concat([decipher.update(Buffer.from(enc, "base64")), decipher.final()]).toString("utf8");
 }
 
 function writeDb(db: DbSchema) {
@@ -340,21 +330,18 @@ function ipRestrictionGate(req: express.Request, res: express.Response, next: ex
   const ip = requestIp(req);
   if (isLoopback(ip) || ipIsAllowed(ip, db.security.allowedIps)) return next();
   return res.status(403).json({
-    error: `Access denied. This device's IP address (${ip}) is not authorized to use the AdBoard dashboard. Contact your administrator.`,
+    error: `Access denied. This device's IP address (${ip}) is not authorized to use the WallpaperWizard dashboard. Contact your administrator.`,
     code: "IP_RESTRICTED",
     clientIp: ip
   });
 }
 
-// --- Upload validation (mirrors the client-side limits in mediaService.ts) ---
+// --- Upload validation (mirrors the client-side limits in wallpaperService.ts) ---
+// JPG and PNG only: the formats both Windows and macOS accept as wallpaper.
 
-const ALLOWED_MIMES = new Set([
-  "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp",
-  "video/mp4", "video/quicktime", "video/webm"
-]);
-const ALLOWED_EXTS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4", ".mov", ".webm"]);
+const ALLOWED_MIMES = new Set(["image/jpeg", "image/jpg", "image/png"]);
+const ALLOWED_EXTS = new Set([".jpg", ".jpeg", ".png"]);
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20MB
-const MAX_VIDEO_BYTES = 500 * 1024 * 1024; // 500MB
 
 // Configure Multer Storage Engine for local file uploads
 const storageConfig = multer.diskStorage({
@@ -371,17 +358,147 @@ const storageConfig = multer.diskStorage({
 const upload = multer({
   storage: storageConfig,
   limits: {
-    fileSize: MAX_VIDEO_BYTES
+    fileSize: MAX_IMAGE_BYTES
   },
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     if (ALLOWED_MIMES.has(file.mimetype) && ALLOWED_EXTS.has(ext)) {
       cb(null, true);
     } else {
-      cb(new Error("Unsupported file type. Allowed: JPG, PNG, GIF, WEBP images and MP4, MOV, WEBM videos."));
+      cb(new Error("Unsupported file type. Wallpapers must be JPG or PNG images."));
     }
   }
 });
+
+// --- Discovery + push worker ---
+// One cycle: scan the configured ranges for SSH, register devices by host-key
+// fingerprint, then push each approved device the wallpaper it should have.
+
+const workerStatus: WorkerStatus = { running: false, lastRun: null };
+
+/** Read-modify-write one device synchronously, so it never clobbers dashboard edits made mid-cycle. */
+function updateDevice(id: string, fn: (d: Device) => void) {
+  const db = readDb();
+  const device = db.devices.find(d => d.id === id);
+  if (device) {
+    fn(device);
+    writeDb(db);
+  }
+}
+
+async function discover(ranges: string[]): Promise<string[]> {
+  const ips = [...new Set(ranges.flatMap(r => expandScanRange(r) || []))].slice(0, MAX_SCAN_HOSTS);
+  const seen: string[] = [];
+  await mapLimit(ips, 64, async ip => {
+    const banner = await probeBanner(ip);
+    if (!banner) return;
+    const fp = await fetchHostFingerprint(ip);
+    if (!fp) return;
+    seen.push(fp);
+    const now = new Date().toISOString();
+    const db = readDb();
+    const guess = /windows/i.test(banner) ? "windows" : null;
+    let device = db.devices.find(d => d.id === fp);
+    if (device) {
+      device.ip = ip;
+      device.lastSeen = now;
+      device.os = device.os || guess;
+    } else {
+      device = {
+        id: fp, ip, hostname: null, label: null, os: guess, group: null,
+        status: db.push.autoApprove ? "approved" : "pending",
+        firstSeen: now, lastSeen: now, lastPush: null, applied: null
+      };
+      db.devices.push(device);
+      logAudit(db, null, "device.discover", "device", fp, `Discovered SSH host at ${ip} (${banner})`);
+    }
+    // An IP now owned by a different host key means the old record moved or was replaced
+    for (const other of db.devices) {
+      if (other.id !== fp && other.ip === ip) other.ip = "";
+    }
+    writeDb(db);
+    if (!device.hostname) {
+      dns.promises.reverse(ip).then(names => {
+        if (names[0]) updateDevice(fp, d => { d.hostname = d.hostname || names[0]; });
+      }).catch(() => { /* no PTR record: normal on many networks */ });
+    }
+  });
+  return seen;
+}
+
+async function pushDevices(deviceIds: string[] | null, force: boolean): Promise<{ pushed: number; failed: number }> {
+  const db = readDb();
+  if (!db.push.passwordEnc) return { pushed: 0, failed: 0 };
+  let password: string;
+  try {
+    password = decryptSecret(db.push.passwordEnc);
+  } catch {
+    throw new Error("Saved device password can't be decrypted (was WW_SECRET_KEY changed?). Re-enter it in Push Settings.");
+  }
+  const creds = { username: db.push.username, password };
+  const targets = db.devices.filter(d =>
+    d.status === "approved" && d.ip && d.os !== "other" && (!deviceIds || deviceIds.includes(d.id))
+  );
+  let pushed = 0;
+  let failed = 0;
+  await mapLimit(targets, 8, async device => {
+    const wallpaper = resolveWallpaper(readDb().wallpapers, device);
+    if (!wallpaper) return;
+    if (!force && device.applied?.wallpaperId === wallpaper.id && device.applied.version === wallpaper.updatedAt) return;
+    const now = new Date().toISOString();
+    try {
+      const data = fs.readFileSync(path.join(UPLOADS_DIR, path.basename(wallpaper.url)));
+      const name = `wallpaper-${crypto.createHash("sha256").update(wallpaper.id + wallpaper.updatedAt).digest("hex").slice(0, 12)}${path.extname(wallpaper.url).toLowerCase()}`;
+      const result = await pushWallpaper(device.ip, device.id, creds, { name, data });
+      result.ok ? pushed++ : failed++;
+      updateDevice(device.id, d => {
+        d.os = result.os;
+        d.hostname = result.hostname || d.hostname;
+        d.lastPush = { at: now, ok: result.ok, message: result.message, wallpaperId: wallpaper.id };
+        if (result.applied) d.applied = { wallpaperId: wallpaper.id, version: wallpaper.updatedAt };
+      });
+    } catch (err) {
+      failed++;
+      const message = err instanceof Error ? err.message : String(err);
+      updateDevice(device.id, d => { d.lastPush = { at: now, ok: false, message: message.slice(0, 300), wallpaperId: wallpaper.id }; });
+    }
+  });
+  if (pushed || failed) {
+    const fresh = readDb();
+    logAudit(fresh, null, "device.push", "device", null, `Pushed wallpapers: ${pushed} succeeded, ${failed} failed`);
+    writeDb(fresh);
+  }
+  return { pushed, failed };
+}
+
+/** Runs one scan + push cycle unless one is already running. */
+async function runCycle(opts: { scan: boolean; deviceIds?: string[] | null; force?: boolean }): Promise<boolean> {
+  if (workerStatus.running) return false;
+  workerStatus.running = true;
+  const run = { startedAt: new Date().toISOString(), finishedAt: null as string | null, found: 0, pushed: 0, failed: 0, note: null as string | null };
+  workerStatus.lastRun = run;
+  try {
+    const { push } = readDb();
+    if (opts.scan) run.found = (await discover(push.scanRanges)).length;
+    if (!push.passwordEnc) run.note = "No device password saved; discovery only.";
+    Object.assign(run, await pushDevices(opts.deviceIds ?? null, !!opts.force));
+  } catch (err) {
+    run.note = err instanceof Error ? err.message : String(err);
+    console.error("[WallpaperWizard] cycle failed:", err);
+  } finally {
+    run.finishedAt = new Date().toISOString();
+    workerStatus.running = false;
+  }
+  return true;
+}
+
+function scheduleCycles() {
+  const minutes = Math.max(5, readDb().push.intervalMinutes || 15);
+  setTimeout(async () => {
+    if (readDb().push.scanRanges.length) await runCycle({ scan: true });
+    scheduleCycles();
+  }, minutes * 60_000);
+}
 
 async function startServer() {
   const app = express();
@@ -446,14 +563,6 @@ async function startServer() {
     };
     db.users = [superadmin];
     db.setupCompleted = true;
-    db.displaySettings = {
-      kioskMode: false,
-      autoplaySeconds: 8,
-      transitionEffect: "fade",
-      updatedBy: superadmin.id,
-      updatedAt: nowStr
-    };
-    db.mediaItems = [];
     logAudit(db, superadmin, "setup.complete", "auth", superadmin.id, `Platform setup completed for ${email}`);
     writeDb(db);
 
@@ -580,7 +689,7 @@ async function startServer() {
     const secret = generateBase32Secret();
     pendingEnrollments.set(factorId, { secret, label, userId: actor.id, expiry: Date.now() + PENDING_TTL_MS });
 
-    const issuer = encodeURIComponent("AdBoard");
+    const issuer = encodeURIComponent("WallpaperWizard");
     const account = encodeURIComponent(actor.email);
     const otpauthUrl = `otpauth://totp/${issuer}:${account}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
     res.json({ factorId, secret, otpauthUrl });
@@ -715,14 +824,13 @@ async function startServer() {
     res.json({
       ipRestrictionEnabled: db.security.ipRestrictionEnabled,
       allowedIps: db.security.allowedIps,
-      viewerApprovalRequired: !!db.security.viewerApprovalRequired,
       updatedBy: db.security.updatedBy || null,
       updatedAt: db.security.updatedAt || null
     });
   });
 
   app.post("/api/security", requireSuperadmin, (req, res) => {
-    const { ipRestrictionEnabled, allowedIps, viewerApprovalRequired } = req.body;
+    const { ipRestrictionEnabled, allowedIps } = req.body;
     const list: string[] = Array.isArray(allowedIps) ? allowedIps.map(String) : [];
     const invalid = list.filter(entry => !isValidAllowlistEntry(entry));
     if (invalid.length > 0) {
@@ -744,131 +852,13 @@ async function startServer() {
     db.security = {
       ipRestrictionEnabled: enabled,
       allowedIps: list,
-      viewerApprovalRequired: !!viewerApprovalRequired,
       updatedBy: actor.id,
       updatedAt: new Date().toISOString()
     };
     logAudit(db, actor, "security.update", "security", "ip-policy",
-      `IP restriction ${enabled ? "ENABLED" : "disabled"}; allowlist: [${list.join(", ") || "empty"}]; viewerApproval=${!!viewerApprovalRequired}`);
+      `IP restriction ${enabled ? "ENABLED" : "disabled"}; allowlist: [${list.join(", ") || "empty"}]`);
     writeDb(db);
     res.json({ success: true, security: db.security });
-  });
-
-  // --- Viewer device registry (public heartbeat; superadmin controls) ---
-
-  // Public: a display screen registers/refreshes and learns its approval status.
-  // Enforced server-side — a denied device is told 'denied' and stops rendering.
-  app.post("/api/viewers/heartbeat", (req, res) => {
-    const { deviceId, userAgent } = req.body || {};
-    if (!deviceId || typeof deviceId !== "string") {
-      return res.status(400).json({ error: "Missing device id." });
-    }
-    const db = readDb();
-    const nowStr = new Date().toISOString();
-    const ip = requestIp(req);
-    let device = db.viewers.find(v => v.deviceId === deviceId);
-    if (device) {
-      device.ip = ip;
-      device.userAgent = String(userAgent || "").slice(0, 300);
-      device.lastSeen = nowStr;
-    } else {
-      device = {
-        deviceId,
-        label: null,
-        hostname: null,
-        ip,
-        userAgent: String(userAgent || "").slice(0, 300),
-        status: db.security.viewerApprovalRequired ? "pending" : "approved",
-        firstSeen: nowStr,
-        lastSeen: nowStr
-      };
-      db.viewers.push(device);
-    }
-    writeDb(db);
-    res.json({ status: device.status });
-
-    // Best-effort reverse DNS for a real hostname (works on LANs with local
-    // DNS/mDNS records). Runs after the response so it never slows heartbeats.
-    if (!device.hostname && ip && !isLoopback(ip)) {
-      dns.promises.reverse(ip).then(names => {
-        if (names && names[0]) {
-          const fresh = readDb();
-          const rec = fresh.viewers.find(v => v.deviceId === deviceId);
-          if (rec && !rec.hostname) {
-            rec.hostname = names[0];
-            writeDb(fresh);
-          }
-        }
-      }).catch(() => { /* no PTR record — normal on most networks */ });
-    }
-  });
-
-  app.get("/api/viewers", requireAuth, (req, res) => {
-    const db = readDb();
-    const viewers = [...db.viewers]
-      .sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime());
-    res.json({ viewers });
-  });
-
-  app.post("/api/viewers/:id", requireSuperadmin, (req, res) => {
-    const { status, label } = req.body || {};
-    if (status !== undefined && !["pending", "approved", "denied"].includes(status)) {
-      return res.status(400).json({ error: "Status must be pending, approved, or denied." });
-    }
-    const db = readDb();
-    const actor = (req as any).adminUser as UserRecord;
-    const device = db.viewers.find(v => v.deviceId === req.params.id);
-    if (device) {
-      if (status !== undefined) {
-        device.status = status;
-        logAudit(db, actor, "viewer.update", "viewer", device.deviceId,
-          `Set viewer ${device.label || device.hostname || device.ip || device.deviceId} to ${status}`);
-      }
-      if (label !== undefined) {
-        device.label = String(label).slice(0, 80) || null;
-        logAudit(db, actor, "viewer.rename", "viewer", device.deviceId, `Renamed viewer to "${device.label}"`);
-      }
-      writeDb(db);
-    }
-    res.json({ success: true });
-  });
-
-  // Playtime flush from a display screen (public; capped to prevent abuse).
-  // Only devices already registered via heartbeat are accepted.
-  app.post("/api/playtime", (req, res) => {
-    const { deviceId, entries } = req.body || {};
-    if (!deviceId || typeof deviceId !== "string" || !Array.isArray(entries)) {
-      return res.status(400).json({ error: "Missing device id or entries." });
-    }
-    const db = readDb();
-    if (!db.viewers.some(v => v.deviceId === deviceId)) {
-      return res.status(400).json({ error: "Unknown device." });
-    }
-    for (const entry of entries.slice(0, 50)) {
-      const mediaId = String(entry?.mediaId || "");
-      const seconds = Number(entry?.seconds);
-      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(mediaId) || !isFinite(seconds) || seconds <= 0) continue;
-      // A flush happens at most every ~60s, so cap each increment at 10 minutes
-      const capped = Math.min(seconds, 600);
-      db.playtime[mediaId] = db.playtime[mediaId] || {};
-      db.playtime[mediaId][deviceId] = (db.playtime[mediaId][deviceId] || 0) + capped;
-    }
-    writeDb(db);
-    res.json({ success: true });
-  });
-
-  // Aggregated playtime per media item (any signed-in admin)
-  app.get("/api/playtime", requireAuth, (req, res) => {
-    const db = readDb();
-    const stats: Record<string, { totalSeconds: number; screenCount: number }> = {};
-    for (const [mediaId, byDevice] of Object.entries(db.playtime)) {
-      const values = Object.values(byDevice);
-      stats[mediaId] = {
-        totalSeconds: Math.round(values.reduce((a, b) => a + b, 0)),
-        screenCount: Object.keys(byDevice).length
-      };
-    }
-    res.json({ stats });
   });
 
   // --- Audit trail (superadmin only) ---
@@ -879,144 +869,88 @@ async function startServer() {
     res.json({ entries: db.audit.slice(0, limit) });
   });
 
-  // Feedback -> GitHub issue (auto-create when GITHUB_TOKEN is configured).
-  // Without a token it replies 501 so the client falls back to the pre-fill URL.
-  app.post("/api/feedback", async (req, res) => {
-    const token = process.env.GITHUB_TOKEN;
-    const repo = process.env.GITHUB_REPO || "sanjaykshebbar/Adboard_v4";
-    if (!token) {
-      return res.status(501).json({ error: "Server-side feedback is not configured (no GITHUB_TOKEN)." });
-    }
-    const { type, title, description, email } = req.body || {};
-    if (!title || !description) {
-      return res.status(400).json({ error: "Title and description are required." });
-    }
-    const typePrefix = type === "feature" ? "[Feature]" : type === "feedback" ? "[Feedback]" : "[Bug]";
-    const label = type === "feature" ? "enhancement" : type === "feedback" ? "feedback" : "bug";
-    const body = `${String(description).trim()}\n\n---\n- Type: ${type || "bug"}\n${email ? `- Reporter: ${email}\n` : ""}- Submitted from the AdBoard in-app feedback form (self-hosted).`;
-    try {
-      const ghRes = await fetch(`https://api.github.com/repos/${repo}/issues`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/vnd.github+json",
-          "Content-Type": "application/json",
-          "User-Agent": "AdBoard-Feedback"
-        },
-        body: JSON.stringify({ title: `${typePrefix} ${title}`, body, labels: [label] })
-      });
-      if (!ghRes.ok) {
-        const detail = await ghRes.text();
-        console.error("GitHub issue creation failed:", ghRes.status, detail);
-        return res.status(502).json({ error: "Could not create the GitHub issue." });
-      }
-      const issue = await ghRes.json();
-      res.json({ url: issue.html_url });
-    } catch (err) {
-      console.error("Feedback endpoint error:", err);
-      res.status(502).json({ error: "Could not reach GitHub." });
-    }
-  });
+  // --- Wallpapers ---
 
-  // 4. Retrieve Display Settings (public: the kiosk screen needs them)
-  app.get("/api/display-settings", (req, res) => {
+  app.get("/api/wallpapers", requireAuth, (req, res) => {
     const db = readDb();
-    res.json(db.displaySettings);
+    res.json([...db.wallpapers].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
   });
 
-  // 5. Update Display Settings
-  app.post("/api/display-settings", requireAuth, (req, res) => {
-    const { kioskMode, autoplaySeconds, transitionEffect, userId, fallbackUrl, fallbackType } = req.body;
+  app.post("/api/wallpapers", requireAuth, (req, res) => {
+    const b = req.body || {};
     const db = readDb();
     const actor = (req as any).adminUser as UserRecord;
 
-    db.displaySettings = {
-      kioskMode: !!kioskMode,
-      autoplaySeconds: Number(autoplaySeconds) || 8,
-      transitionEffect: transitionEffect || "fade",
-      updatedBy: userId || actor.id,
-      updatedAt: new Date().toISOString(),
-      fallbackUrl: typeof fallbackUrl === "string" ? fallbackUrl : null,
-      fallbackType: typeof fallbackType === "string" ? fallbackType : null
+    if (typeof b.id !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(b.id)) {
+      return res.status(400).json({ error: "Wallpaper ID must be alphanumeric (dashes/underscores allowed)." });
+    }
+    const title = String(b.title || "").trim().slice(0, 120);
+    if (!title) return res.status(400).json({ error: "Title is required." });
+    if (typeof b.url !== "string" || !/^\/uploads\/[a-zA-Z0-9._-]+$/.test(b.url) || !fs.existsSync(path.join(UPLOADS_DIR, path.basename(b.url)))) {
+      return res.status(400).json({ error: "Upload the image first." });
+    }
+    if (!["org", "group", "device"].includes(b.scope)) {
+      return res.status(400).json({ error: "Scope must be org, group, or device." });
+    }
+    let target: string | null = null;
+    if (b.scope === "group") {
+      target = String(b.target || "").trim().slice(0, 64);
+      if (!target) return res.status(400).json({ error: "Choose a group name." });
+    }
+    if (b.scope === "device") {
+      target = String(b.target || "");
+      if (!db.devices.some(d => d.id === target)) return res.status(400).json({ error: "Choose a device." });
+    }
+    const start = b.scheduledStart ? new Date(b.scheduledStart) : null;
+    const end = b.scheduledEnd ? new Date(b.scheduledEnd) : null;
+    if ((start && isNaN(start.getTime())) || (end && isNaN(end.getTime())) || (start && end && start >= end)) {
+      return res.status(400).json({ error: "Schedule start must be a valid time before the end." });
+    }
+
+    const nowStr = new Date().toISOString();
+    const existing = db.wallpapers.find(w => w.id === b.id);
+    const wallpaper: Wallpaper = {
+      id: b.id,
+      title,
+      url: b.url,
+      mimeType: String(b.mimeType || existing?.mimeType || "").slice(0, 64),
+      fileName: String(b.fileName || existing?.fileName || "").slice(0, 200),
+      fileSize: Number(b.fileSize || existing?.fileSize) || 0,
+      isActive: b.isActive !== false,
+      scope: b.scope,
+      target,
+      scheduledStart: start ? start.toISOString() : null,
+      scheduledEnd: end ? end.toISOString() : null,
+      ownerId: existing?.ownerId || actor.id,
+      createdAt: existing?.createdAt || nowStr,
+      updatedAt: nowStr
     };
-
-    logAudit(db, actor, "settings.update", "settings", "displayConfig",
-      `autoplay=${db.displaySettings.autoplaySeconds}s, effect=${db.displaySettings.transitionEffect}, kiosk=${db.displaySettings.kioskMode}, defaultSlide=${db.displaySettings.fallbackUrl ? "set" : "none"}`);
+    db.wallpapers = db.wallpapers.filter(w => w.id !== b.id).concat(wallpaper);
+    logAudit(db, actor, existing ? "wallpaper.update" : "wallpaper.create", "wallpaper", wallpaper.id,
+      `${existing ? "Updated" : "Added"} wallpaper "${title}" for ${wallpaper.scope}${target ? ` ${target}` : ""}`);
     writeDb(db);
-    res.json({ success: true, settings: db.displaySettings });
+    res.json({ success: true, item: wallpaper });
+    runCycle({ scan: false }); // roll the change out now instead of waiting for the next cycle
   });
 
-  // 6. Retrieve Media Slide Items (public: the kiosk screen needs them)
-  app.get("/api/media", (req, res) => {
-    const db = readDb();
-    // Sort array defensive copy by sortOrder
-    const sortedMedia = [...db.mediaItems].sort((a, b) => a.sortOrder - b.sortOrder);
-    res.json(sortedMedia);
-  });
-
-  // 7. Save Media Slide Item Details
-  app.post("/api/media", requireAuth, (req, res) => {
-    const asset = req.body;
-    if (!asset || !asset.id) {
-      return res.status(400).json({ error: "Null asset payload or missing ID reference." });
-    }
-    if (typeof asset.id !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(asset.id)) {
-      return res.status(400).json({ error: "Asset ID must be alphanumeric (dashes/underscores allowed)." });
-    }
-
+  app.delete("/api/wallpapers/:id", requireAuth, (req, res) => {
     const db = readDb();
     const actor = (req as any).adminUser as UserRecord;
-    const idx = db.mediaItems.findIndex(i => i.id === asset.id);
-    if (idx >= 0) {
-      db.mediaItems[idx] = { ...db.mediaItems[idx], ...asset, updatedAt: new Date().toISOString() };
-      logAudit(db, actor, "media.update", "media", asset.id, `Updated slide "${asset.title || asset.id}"`);
-    } else {
-      db.mediaItems.push({
-        ...asset,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
-      logAudit(db, actor, "media.create", "media", asset.id, `Published slide "${asset.title || asset.id}"`);
-    }
-
-    // Keep sorted order correctly
-    db.mediaItems.sort((a, b) => a.sortOrder - b.sortOrder);
-
-    writeDb(db);
-    res.json({ success: true, item: asset });
-  });
-
-  // 8. Delete Media Slide Item
-  app.delete("/api/media/:id", requireAuth, (req, res) => {
-    const id = req.params.id;
-    const db = readDb();
-    const actor = (req as any).adminUser as UserRecord;
-    const targetItem = db.mediaItems.find(i => i.id === id);
-
-    if (targetItem) {
-      // If asset URL is located locally, physically delete file from storage to keep disk usage lean
-      if (targetItem.url.startsWith("/uploads/")) {
-        // basename() strips any directory segments, preventing path traversal outside UPLOADS_DIR
-        const localFileName = path.basename(targetItem.url);
-        const localFilePath = path.join(UPLOADS_DIR, localFileName);
-        if (fs.existsSync(localFilePath)) {
-          try {
-            fs.unlinkSync(localFilePath);
-            console.log(`Pruned physical file from container disk: ${localFilePath}`);
-          } catch (unlinkError) {
-            console.error(`Faulted attempting to prune physical file ${localFilePath}:`, unlinkError);
-          }
-        }
-      }
-      db.mediaItems = db.mediaItems.filter(i => i.id !== id);
-      logAudit(db, actor, "media.delete", "media", id, `Deleted slide "${targetItem.title || id}"`);
+    const target = db.wallpapers.find(w => w.id === req.params.id);
+    if (target) {
+      // basename() strips directory segments, preventing path traversal outside UPLOADS_DIR
+      const filePath = path.join(UPLOADS_DIR, path.basename(target.url));
+      try {
+        fs.unlinkSync(filePath);
+      } catch { /* already gone */ }
+      db.wallpapers = db.wallpapers.filter(w => w.id !== target.id);
+      logAudit(db, actor, "wallpaper.delete", "wallpaper", target.id, `Deleted wallpaper "${target.title}"`);
       writeDb(db);
+      runCycle({ scan: false });
     }
-
     res.json({ success: true });
   });
 
-  // 9. Local Upload Multipart Target
   app.post("/api/upload", requireAuth, (req, res) => {
     upload.single("file")(req, res, (err: unknown) => {
       if (err) {
@@ -1026,24 +960,122 @@ async function startServer() {
       if (!req.file) {
         return res.status(400).json({ error: "Failed to upload file. Check file size limits." });
       }
-
-      // Enforce the tighter image limit (multer's global limit covers videos)
-      if (req.file.mimetype.startsWith("image/") && req.file.size > MAX_IMAGE_BYTES) {
-        try {
-          fs.unlinkSync(req.file.path);
-        } catch { /* file may already be gone */ }
-        return res.status(400).json({ error: "Image files must be 20MB or smaller." });
-      }
-
       const db = readDb();
       const actor = (req as any).adminUser as UserRecord;
-      logAudit(db, actor, "media.upload", "media", req.file.filename, `Uploaded file ${req.file.originalname} (${(req.file.size / (1024 * 1024)).toFixed(2)} MB)`);
+      logAudit(db, actor, "wallpaper.upload", "wallpaper", req.file.filename, `Uploaded ${req.file.originalname} (${(req.file.size / (1024 * 1024)).toFixed(2)} MB)`);
       writeDb(db);
-
-      // Build responsive URL reference inside the container context
-      const fileUrl = `/uploads/${req.file.filename}`;
-      res.json({ url: fileUrl });
+      res.json({ url: `/uploads/${req.file.filename}` });
     });
+  });
+
+  // --- Devices ---
+
+  app.get("/api/devices", requireAuth, (req, res) => {
+    const db = readDb();
+    res.json([...db.devices].sort((a, b) => b.lastSeen.localeCompare(a.lastSeen)));
+  });
+
+  app.post("/api/devices/:id", requireSuperadmin, (req, res) => {
+    const { status, group, label } = req.body || {};
+    if (status !== undefined && !["pending", "approved", "ignored"].includes(status)) {
+      return res.status(400).json({ error: "Status must be pending, approved, or ignored." });
+    }
+    const db = readDb();
+    const actor = (req as any).adminUser as UserRecord;
+    const device = db.devices.find(d => d.id === req.params.id);
+    if (!device) return res.status(404).json({ error: "Device not found." });
+    const changes: string[] = [];
+    if (status !== undefined) { device.status = status; changes.push(`status=${status}`); }
+    if (group !== undefined) { device.group = String(group || "").trim().slice(0, 64) || null; changes.push(`group=${device.group || "none"}`); }
+    if (label !== undefined) { device.label = String(label || "").trim().slice(0, 80) || null; changes.push(`name=${device.label || "none"}`); }
+    logAudit(db, actor, "device.update", "device", device.id, `${device.label || device.hostname || device.ip}: ${changes.join(", ")}`);
+    writeDb(db);
+    res.json({ success: true });
+    if (status === "approved" || group !== undefined) runCycle({ scan: false, deviceIds: [device.id] });
+  });
+
+  app.delete("/api/devices/:id", requireSuperadmin, (req, res) => {
+    const db = readDb();
+    const actor = (req as any).adminUser as UserRecord;
+    const device = db.devices.find(d => d.id === req.params.id);
+    if (device) {
+      db.devices = db.devices.filter(d => d.id !== device.id);
+      logAudit(db, actor, "device.delete", "device", device.id, `Removed ${device.label || device.hostname || device.ip}`);
+      writeDb(db);
+    }
+    res.json({ success: true });
+  });
+
+  // --- Scan + push ---
+
+  app.get("/api/worker", requireAuth, (req, res) => {
+    res.json(workerStatus);
+  });
+
+  app.post("/api/scan", requireSuperadmin, (req, res) => {
+    if (!readDb().push.scanRanges.length) {
+      return res.status(400).json({ error: "Add at least one network range in Push Settings first." });
+    }
+    if (workerStatus.running) return res.status(409).json({ error: "A scan or push is already running." });
+    runCycle({ scan: true });
+    res.status(202).json({ started: true });
+  });
+
+  app.post("/api/push", requireAuth, (req, res) => {
+    const ids = req.body?.deviceIds;
+    if (ids !== undefined && (!Array.isArray(ids) || !ids.every((x: unknown) => typeof x === "string"))) {
+      return res.status(400).json({ error: "deviceIds must be a list of device IDs." });
+    }
+    if (!readDb().push.passwordEnc) return res.status(400).json({ error: "Save the device admin password in Push Settings first." });
+    if (workerStatus.running) return res.status(409).json({ error: "A scan or push is already running." });
+    runCycle({ scan: false, deviceIds: ids || null, force: true });
+    res.status(202).json({ started: true });
+  });
+
+  app.get("/api/push-settings", requireAuth, (req, res) => {
+    const { passwordEnc, ...rest } = readDb().push;
+    res.json({ ...rest, hasPassword: !!passwordEnc });
+  });
+
+  app.post("/api/push-settings", requireSuperadmin, (req, res) => {
+    const { username, password, scanRanges, intervalMinutes, autoApprove } = req.body || {};
+    if (typeof username !== "string" || !/^[a-zA-Z0-9._@\\-]{1,64}$/.test(username)) {
+      return res.status(400).json({ error: "Enter a valid device admin username." });
+    }
+    const ranges: string[] = Array.isArray(scanRanges) ? scanRanges.map((r: unknown) => String(r).trim()).filter(Boolean) : [];
+    const badRanges = ranges.filter(r => !expandScanRange(r));
+    if (badRanges.length) {
+      return res.status(400).json({ error: `Invalid or too large ranges (max /20, ${MAX_SCAN_HOSTS} hosts): ${badRanges.join(", ")}` });
+    }
+    const interval = Number(intervalMinutes);
+    if (!Number.isInteger(interval) || interval < 5 || interval > 1440) {
+      return res.status(400).json({ error: "Interval must be 5 to 1440 minutes." });
+    }
+    if (password !== undefined && password !== null && (typeof password !== "string" || password.length > 256)) {
+      return res.status(400).json({ error: "Invalid password." });
+    }
+
+    const db = readDb();
+    const actor = (req as any).adminUser as UserRecord;
+    const passwordChanged = typeof password === "string" && password.length > 0;
+    db.push = {
+      username,
+      // Empty/missing password keeps the saved one; it is write-only from the dashboard
+      passwordEnc: passwordChanged ? encryptSecret(password) : db.push.passwordEnc,
+      scanRanges: ranges,
+      intervalMinutes: interval,
+      autoApprove: !!autoApprove,
+      updatedBy: actor.id,
+      updatedAt: new Date().toISOString()
+    };
+    if (passwordChanged) {
+      // New credentials: give previously failing devices a fresh attempt
+      for (const d of db.devices) if (d.lastPush && !d.lastPush.ok) d.applied = null;
+    }
+    logAudit(db, actor, "push.settings", "push", null,
+      `user=${username}${passwordChanged ? ", password updated" : ""}; ranges=[${ranges.join(", ") || "none"}]; every ${interval} min; autoApprove=${!!autoApprove}`);
+    writeDb(db);
+    res.json({ success: true });
   });
 
   // --- End of REST APIs ---
@@ -1066,7 +1098,8 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[AdBoard Server] Running local-first suite on http://localhost:${PORT}`);
+    console.log(`[WallpaperWizard] Dashboard running on http://localhost:${PORT}`);
+    scheduleCycles();
   });
 }
 

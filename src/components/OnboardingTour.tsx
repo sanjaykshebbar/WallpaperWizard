@@ -1,7 +1,7 @@
 /**
  * ==========================================
  * File: src/components/OnboardingTour.tsx
- * Project: AdBoard
+ * Project: WallpaperWizard
  * Purpose:
  * First-run walkthrough of the admin dashboard. Shows once after
  * the first login (skippable) and can be replayed from the sidebar.
@@ -11,10 +11,10 @@
 import React, { useState } from 'react';
 import {
   LayoutDashboard,
+  KeyRound,
+  Radar,
   UploadCloud,
-  Images,
-  SlidersHorizontal,
-  MonitorPlay,
+  Send,
   ShieldCheck,
   X,
   ArrowRight,
@@ -30,33 +30,33 @@ interface TourStep {
 const STEPS: TourStep[] = [
   {
     icon: <LayoutDashboard className="w-8 h-8 text-blue-600" />,
-    title: 'Welcome to AdBoard',
-    body: 'This dashboard is where you manage everything your public display screen shows. This quick tour points out the main areas — you can skip it at any time and replay it later from the sidebar.'
+    title: 'Welcome to WallpaperWizard',
+    body: 'This dashboard sets the desktop wallpaper on your organization\'s Windows and macOS devices, with no agent installed on them. This quick tour shows the main steps; replay it any time from the sidebar.'
+  },
+  {
+    icon: <KeyRound className="w-8 h-8 text-blue-600" />,
+    title: '1. Save the device credentials',
+    body: 'Open the Push Settings tab and enter the local admin account every device shares (ithelpdesk by default) and its password, plus the network ranges to scan, like 192.168.1.0/24. Devices need SSH turned on: OpenSSH Server on Windows, Remote Login on macOS.'
+  },
+  {
+    icon: <Radar className="w-8 h-8 text-blue-600" />,
+    title: '2. Scan and approve devices',
+    body: 'Click "Scan now" on the Devices tab. Each machine that answers on SSH appears as pending. Approve it, or Approve all; the password is only ever sent to approved devices. You can give devices a name and a group, like Sales or Lobby.'
   },
   {
     icon: <UploadCloud className="w-8 h-8 text-blue-600" />,
-    title: 'Publish a slide',
-    body: 'Use the "Publish advertisement" panel on the right to upload an image or video. Give it a title, choose how many seconds it stays on screen, and optionally set a start and end date so it only runs during a campaign window.'
+    title: '3. Add wallpapers',
+    body: 'Upload a JPG or PNG on the Wallpapers tab and choose who gets it: everyone, one group, or one device. Optionally schedule a start and end time. When several apply, the most specific wins (device over group over everyone).'
   },
   {
-    icon: <Images className="w-8 h-8 text-blue-600" />,
-    title: 'Manage your gallery',
-    body: 'The media gallery lists every slide. Click "Adjust Settings" on a slide to rename it, change its duration, reorder it, schedule it, or switch it between Active (shown on screen) and Muted (hidden). The trash button removes it permanently.'
-  },
-  {
-    icon: <SlidersHorizontal className="w-8 h-8 text-blue-600" />,
-    title: 'Tune the display',
-    body: 'The "Kiosk Display Parameters" panel controls the screen itself: how long slides stay up by default, the transition animation, a default slide for when nothing is scheduled, and Kiosk Lockout, which hides the on-screen controls from the public.'
-  },
-  {
-    icon: <MonitorPlay className="w-8 h-8 text-blue-600" />,
-    title: 'Open the display screen',
-    body: 'Click "Interactive Board" in the sidebar to open the public display in a new tab. Put that tab in fullscreen on the screen or TV you want to use. It refreshes itself every 30 seconds, so new slides appear automatically.'
+    icon: <Send className="w-8 h-8 text-blue-600" />,
+    title: '4. Pushes happen automatically',
+    body: 'Changes go out right away and the scan repeats on your chosen interval, so new devices and schedule changes are picked up. Use "Push now" to resend. Each device shows its last push result.'
   },
   {
     icon: <ShieldCheck className="w-8 h-8 text-blue-600" />,
     title: 'Secure your account',
-    body: 'Open "Account & Security" from the sidebar to change your password or add two-factor authentication with an authenticator app such as Google Authenticator or Authy. You are all set — enjoy AdBoard!'
+    body: 'Open "Account & Security" in the sidebar to change your password or add two-factor authentication. You are all set!'
   }
 ];
 

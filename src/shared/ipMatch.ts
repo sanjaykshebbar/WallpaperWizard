@@ -1,7 +1,7 @@
 /**
  * ==========================================
  * File: src/shared/ipMatch.ts
- * Project: AdBoard
+ * Project: WallpaperWizard
  * Purpose:
  * IP allowlist matching shared by the browser gate and the
  * self-hosted Express server. Supports exact IPv4/IPv6 addresses
@@ -64,4 +64,32 @@ export function ipMatchesEntry(clientIp: string, entry: string): boolean {
 export function ipIsAllowed(clientIp: string, allowlist: string[]): boolean {
   if (!clientIp) return false;
   return allowlist.some(entry => ipMatchesEntry(clientIp, entry));
+}
+
+/** Max hosts one scan range may expand to (a /20). Keeps an accidental /8 from flooding the network. */
+export const MAX_SCAN_HOSTS = 4096;
+
+/**
+ * Expands a scan range (single IPv4 or IPv4 CIDR) to host addresses,
+ * skipping network/broadcast for prefixes below /31. Returns null when the
+ * entry is invalid or larger than MAX_SCAN_HOSTS.
+ */
+export function expandScanRange(entry: string): string[] | null {
+  const value = entry.trim();
+  const single = ipv4ToInt(value);
+  if (single !== null) return [value];
+  const cidr = value.match(/^(\d+\.\d+\.\d+\.\d+)\/(\d{1,2})$/);
+  if (!cidr) return null;
+  const base = ipv4ToInt(cidr[1]);
+  const bits = Number(cidr[2]);
+  if (base === null || bits > 32) return null;
+  const size = 2 ** (32 - bits);
+  if (size > MAX_SCAN_HOSTS) return null;
+  const network = bits === 0 ? 0 : (base & ((~0 << (32 - bits)) >>> 0)) >>> 0;
+  const [first, last] = bits >= 31 ? [network, network + size - 1] : [network + 1, network + size - 2];
+  const out: string[] = [];
+  for (let n = first; n <= last; n++) {
+    out.push([n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.'));
+  }
+  return out;
 }
