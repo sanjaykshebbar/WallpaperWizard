@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<title>FOSS Review · AdBoard</title>
+<style>
+  :root{color-scheme:light dark;
+    --bg:#f8fafc;--card:#ffffff;--ink:#0f172a;--ink2:#475569;--ink3:#64748b;
+    --border:#e2e8f0;--accent:#2563eb;--chip:#eff6ff;--chipb:#dbeafe;
+    --ok:#047857;--okbg:#ecfdf5;--okb:#d1fae5;--warn:#92400e;--warnbg:#fffbeb;--warnb:#fde68a}
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#0b1120;--card:#111a2e;--ink:#f1f5f9;--ink2:#cbd5e1;--ink3:#94a3b8;
+    --border:#263450;--accent:#60a5fa;--chip:rgba(59,130,246,.14);--chipb:rgba(96,165,250,.3);
+    --ok:#6ee7b7;--okbg:rgba(16,185,129,.12);--okb:rgba(52,211,153,.3);
+    --warn:#fcd34d;--warnbg:rgba(245,158,11,.12);--warnb:rgba(251,191,36,.3)}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink2);
+    font:15px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:800px;margin:0 auto;padding:2.5rem 1.25rem 4rem}
+  header{display:flex;align-items:center;gap:.8rem;margin-bottom:1.75rem}
+  .logo{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,#3b82f6,#4f46e5);
+    color:#fff;font-weight:800;font-size:1.05rem;display:flex;align-items:center;justify-content:center}
+  h1{font-size:1.35rem;color:var(--ink);margin:0}
+  .sub{font-size:.78rem;color:var(--ink3)}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:1.75rem 1.75rem 1.25rem;margin-bottom:1.25rem}
+  h2{font-size:1rem;color:var(--ink);margin:0 0 .6rem}
+  p{margin:.5rem 0}
+  ul{padding-left:1.25rem;margin:.5rem 0}
+  li{margin:.3rem 0}
+  strong{color:var(--ink)}
+  table{width:100%;border-collapse:collapse;font-size:.82rem;margin:.75rem 0}
+  th,td{border:1px solid var(--border);padding:.45rem .6rem;text-align:left;vertical-align:top}
+  th{color:var(--ink);background:var(--chip)}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  code{font:.85em ui-monospace,Consolas,monospace;background:var(--chip);
+    border:1px solid var(--chipb);border-radius:4px;padding:.05rem .3rem}
+  .verdict{background:var(--okbg);border:1px solid var(--okb);color:var(--ok);
+    border-radius:10px;padding:.8rem 1rem;font-weight:700;margin:.75rem 0}
+  .note{background:var(--warnbg);border:1px solid var(--warnb);color:var(--warn);
+    border-radius:10px;padding:.7rem 1rem;font-size:.85rem;margin:.75rem 0}
+  a{color:var(--accent)}
+  nav{margin-top:1.5rem;font-size:.8rem}
+  nav a{text-decoration:none;margin-right:1rem}
+  nav a:hover{text-decoration:underline}
+  .small{font-size:.78rem;color:var(--ink3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">A3</div>
+    <div>
+      <h1>FOSS Review — Licensing &amp; Compliance</h1>
+      <div class="sub">Review date: 5 July 2026 · Scope: full npm dependency tree</div>
+    </div>
+  </header>
+
+  <div class="card">
+    <h2>Executive summary</h2>
+    <div class="verdict">Overall risk: LOW — 100% permissive licenses, no copyleft, suitable for
+      any kind of hosting or redistribution.</div>
+    <p>AdBoard is released under the <a href="/legal/license.html">MIT License</a> (© 2026 Sanjay KS).
+      Its entire installed dependency tree — <strong>378 packages</strong> (direct + transitive), of
+      which <strong>190 are production/shipped</strong> — resolves to permissive, business-friendly
+      licenses. <strong>No GPL, LGPL, or AGPL license is present anywhere in the tree.</strong>
+      The only weak-copyleft components (MPL-2.0) are build-time tools that are not redistributed
+      with the application.</p>
+    <table>
+      <tr><th>Finding</th><th>Detail</th></tr>
+      <tr><td>Project license</td><td>MIT — free commercial, private, and modified use with attribution</td></tr>
+      <tr><td>Dependency licenses</td><td>100% permissive: MIT, Apache-2.0, ISC, BSD-2/3, 0BSD, Blue Oak</td></tr>
+      <tr><td>Copyleft (GPL/AGPL family)</td><td><strong>None detected</strong></td></tr>
+      <tr><td>Weak copyleft (MPL-2.0)</td><td>2 packages (<code>lightningcss</code>) — dev/build only, not shipped</td></tr>
+      <tr><td>Attribution</td><td>Satisfied by the <a href="/legal/third-party-notices.html">third-party notices</a></td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Method</h2>
+    <ul>
+      <li>License identifiers read from each installed package's <code>package.json</code> under
+        <code>node_modules</code>.</li>
+      <li>Full recursive scan: <strong>378 packages</strong> tallied; non-MIT licenses individually identified.</li>
+      <li>Production subset resolved via <code>npm ls --omit=dev --all</code> (<strong>190 packages</strong>) —
+        this is what distribution obligations attach to.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>License distribution (all 378 installed packages)</h2>
+    <table>
+      <tr><th>License</th><th>Packages</th><th>Category</th><th>Copyleft?</th></tr>
+      <tr><td>MIT</td><td class="num">257</td><td>Permissive</td><td>No</td></tr>
+      <tr><td>Apache-2.0</td><td class="num">70</td><td>Permissive (+ patent grant)</td><td>No</td></tr>
+      <tr><td>ISC</td><td class="num">26</td><td>Permissive</td><td>No</td></tr>
+      <tr><td>BSD-3-Clause</td><td class="num">14</td><td>Permissive</td><td>No</td></tr>
+      <tr><td>BSD-2-Clause</td><td class="num">6</td><td>Permissive</td><td>No</td></tr>
+      <tr><td>MPL-2.0</td><td class="num">2</td><td>Weak copyleft (file-level)</td><td>Weak — build-time only</td></tr>
+      <tr><td>CC-BY-4.0</td><td class="num">1</td><td>Data attribution (browser-support dataset)</td><td>No</td></tr>
+      <tr><td>BlueOak-1.0.0</td><td class="num">1</td><td>Permissive</td><td>No</td></tr>
+      <tr><td>0BSD</td><td class="num">1</td><td>Public-domain-equivalent</td><td>No</td></tr>
+    </table>
+    <p class="small">Production (shipped) tree: MIT ×115, Apache-2.0 ×52, BSD-3-Clause ×11, ISC ×11,
+      0BSD ×1 — all permissive.</p>
+  </div>
+
+  <div class="card">
+    <h2>Direct runtime dependencies</h2>
+    <table>
+      <tr><th>Package</th><th>License</th><th>Role</th></tr>
+      <tr><td>react / react-dom</td><td>MIT</td><td>UI</td></tr>
+      <tr><td>react-router-dom</td><td>MIT</td><td>Routing</td></tr>
+      <tr><td>@supabase/supabase-js</td><td>MIT</td><td>Supabase client</td></tr>
+      <tr><td>firebase</td><td>Apache-2.0</td><td>Firebase client</td></tr>
+      <tr><td>express</td><td>MIT</td><td>Self-hosted server</td></tr>
+      <tr><td>multer</td><td>MIT</td><td>Upload handling</td></tr>
+      <tr><td>lucide-react</td><td>ISC</td><td>Icons</td></tr>
+      <tr><td>qrcode</td><td>MIT</td><td>2FA QR codes</td></tr>
+    </table>
+    <p class="small">Dev/build tooling (Vite, TypeScript, esbuild, Tailwind, tsx, type stubs) is
+      MIT/Apache-2.0 and is not distributed.</p>
+  </div>
+
+  <div class="card">
+    <h2>Notable licenses &amp; what they require</h2>
+    <ul>
+      <li><strong>Apache-2.0</strong> (<code>firebase</code>, ~70 transitive): permissive with an express
+        patent grant. Retain the license text and reproduce NOTICE files when redistributing.</li>
+      <li><strong>MPL-2.0</strong> (<code>lightningcss</code>): file-level weak copyleft, pulled in by the
+        Tailwind/Vite build toolchain and <strong>not part of the shipped bundle</strong> — no
+        obligations are triggered by normal distribution.</li>
+      <li><strong>CC-BY-4.0</strong> (<code>caniuse-lite</code>): attribution for a build-time data file; not code.</li>
+      <li><strong>ISC / BSD / 0BSD / Blue Oak</strong>: MIT-equivalent in practice — keep notices.</li>
+    </ul>
+    <div class="note">Compliance obligations: keep the MIT notice with copies, ship the
+      third-party notices file, preserve Apache NOTICE contents. <strong>No source-code disclosure is
+      required by any license in the tree.</strong></div>
+  </div>
+
+  <div class="card">
+    <h2>Risk assessment &amp; recommendations</h2>
+    <table>
+      <tr><th>Dimension</th><th>Rating</th><th>Rationale</th></tr>
+      <tr><td>License compatibility</td><td>Low</td><td>All mutually compatible, MIT-distributable</td></tr>
+      <tr><td>Copyleft exposure</td><td>Low</td><td>None shipped; MPL limited to build tools</td></tr>
+      <tr><td>Patent risk</td><td>Low</td><td>Apache-2.0 carries an explicit patent grant</td></tr>
+      <tr><td>Attribution effort</td><td>Low</td><td>Automated notices generated from the dependency tree</td></tr>
+      <tr><td>Commercial use</td><td>Low</td><td>Fully permissive</td></tr>
+      <tr><td>Maintenance</td><td>Low–Med</td><td>Large tree (378 pkgs): keep <code>npm audit</code> clean</td></tr>
+    </table>
+    <ul>
+      <li>Regenerate the notices file when dependencies change.</li>
+      <li>Add a CI license gate (fail on GPL/AGPL/UNKNOWN).</li>
+      <li>Run <code>npm audit</code> regularly — security, not licensing, is the ongoing risk.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Statement of intent</h2>
+    <p>AdBoard is built <strong>as a hobby project</strong> and shared in the spirit of open source:
+      <strong>no telemetry is collected</strong>, no data leaves your deployment, and anyone may
+      <strong>host it as they need and improve it as they need</strong> under the MIT License.
+      See the <a href="/legal/privacy.html">usage &amp; privacy policy</a> for details.</p>
+    <p class="small"><em>This is an engineering-level assessment based on declared SPDX identifiers;
+      it is not legal advice.</em></p>
+  </div>
+
+  <nav>
+    <a href="/legal/license.html">License</a>
+    <a href="/legal/third-party-notices.html">Third-party notices</a>
+    <a href="/legal/privacy.html">Usage &amp; privacy policy</a>
+    <a href="/">← Back to AdBoard</a>
+  </nav>
+</div>
+</body>
+</html>

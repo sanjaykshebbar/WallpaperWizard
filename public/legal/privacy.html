@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<title>Usage &amp; Privacy Policy · AdBoard</title>
+<style>
+  :root{color-scheme:light dark;
+    --bg:#f8fafc;--card:#ffffff;--ink:#0f172a;--ink2:#475569;--ink3:#64748b;
+    --border:#e2e8f0;--accent:#2563eb;--chip:#eff6ff;--chipb:#dbeafe;
+    --ok:#047857;--okbg:#ecfdf5;--okb:#d1fae5}
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#0b1120;--card:#111a2e;--ink:#f1f5f9;--ink2:#cbd5e1;--ink3:#94a3b8;
+    --border:#263450;--accent:#60a5fa;--chip:rgba(59,130,246,.14);--chipb:rgba(96,165,250,.3);
+    --ok:#6ee7b7;--okbg:rgba(16,185,129,.12);--okb:rgba(52,211,153,.3)}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink2);
+    font:15px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:760px;margin:0 auto;padding:2.5rem 1.25rem 4rem}
+  header{display:flex;align-items:center;gap:.8rem;margin-bottom:1.75rem}
+  .logo{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,#3b82f6,#4f46e5);
+    color:#fff;font-weight:800;font-size:1.05rem;display:flex;align-items:center;justify-content:center}
+  h1{font-size:1.35rem;color:var(--ink);margin:0}
+  .sub{font-size:.78rem;color:var(--ink3)}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:1.75rem 1.75rem 1.25rem;margin-bottom:1.25rem}
+  h2{font-size:1rem;color:var(--ink);margin:0 0 .6rem}
+  p{margin:.5rem 0}
+  ul,ol{padding-left:1.25rem;margin:.5rem 0}
+  li{margin:.3rem 0}
+  strong{color:var(--ink)}
+  em{color:var(--ink2)}
+  table{width:100%;border-collapse:collapse;font-size:.82rem;margin:.75rem 0}
+  th,td{border:1px solid var(--border);padding:.5rem .6rem;text-align:left;vertical-align:top}
+  th{color:var(--ink);background:var(--chip)}
+  code{font:.85em ui-monospace,Consolas,monospace;background:var(--chip);
+    border:1px solid var(--chipb);border-radius:4px;padding:.05rem .3rem}
+  .callout{background:var(--okbg);border:1px solid var(--okb);color:var(--ok);
+    border-radius:10px;padding:.8rem 1rem;font-weight:600;margin:.75rem 0}
+  a{color:var(--accent)}
+  nav{margin-top:1.5rem;font-size:.8rem}
+  nav a{text-decoration:none;margin-right:1rem}
+  nav a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">A3</div>
+    <div>
+      <h1>Usage &amp; Privacy Policy</h1>
+      <div class="sub">Last updated: 5 July 2026</div>
+    </div>
+  </header>
+
+  <div class="card">
+    <h2>The short version</h2>
+    <div class="callout">No telemetry. AdBoard collects no analytics, usage statistics, crash
+      reports, or tracking of any kind. There is no “phone home” of any sort.</div>
+    <ul>
+      <li><strong>Your data stays on your infrastructure.</strong> Everything AdBoard stores lives in
+        the backend <em>you</em> choose and control (your Supabase project, your Firebase project,
+        or your own server's disk).</li>
+      <li><strong>Hobby software, provided as-is.</strong> Built for fun and shared under the MIT
+        License. Host it as you need, modify it as you need, improve it as you need. There is no
+        warranty and no guaranteed support.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>1 · What data AdBoard stores (in <em>your</em> backend)</h2>
+    <table>
+      <tr><th>Data</th><th>Purpose</th><th>Where</th></tr>
+      <tr><td>Admin accounts (email, password hash or your auth provider's record, role)</td><td>Sign-in and permissions</td><td>Your backend</td></tr>
+      <tr><td>Two-factor secrets (TOTP)</td><td>Optional 2FA</td><td>Your backend (never shown after enrollment)</td></tr>
+      <tr><td>Uploaded media and its settings</td><td>The content your screens display</td><td>Your storage bucket / server disk</td></tr>
+      <tr><td>Display settings</td><td>Kiosk behavior</td><td>Your backend</td></tr>
+      <tr><td>Viewer device records (random device ID, IP address, browser user-agent, last-seen)</td><td>The “Display Viewers” list and per-device approval</td><td>Your backend</td></tr>
+      <tr><td>Audit log (who did what, when)</td><td>Accountability for admin actions</td><td>Your backend</td></tr>
+      <tr><td>IP allowlist (if enabled)</td><td>Optional dashboard access control</td><td>Your backend</td></tr>
+    </table>
+    <p>Some preferences (theme, “tutorial seen”, session hints, the viewer device ID) are kept in the
+      browser's <code>localStorage</code> on the device itself.</p>
+    <p><strong>The operator of an AdBoard deployment — not the software's author — is the data
+      controller</strong> for anything stored by their instance. If you deploy AdBoard for others
+      (e.g., in a workplace), local privacy laws about IP addresses and audit records are your
+      responsibility.</p>
+  </div>
+
+  <div class="card">
+    <h2>2 · External network connections (complete list)</h2>
+    <ol>
+      <li><strong>Your chosen backend</strong> (your Supabase / Firebase project or your own server) —
+        all application data. Fully offline with the self-hosted Docker backend.</li>
+      <li><strong>Google Fonts</strong> (<code>fonts.googleapis.com</code>) — UI typefaces on page
+        load. For a zero-external deployment, self-host the fonts and edit <code>src/index.css</code>.</li>
+      <li><strong>ipify</strong> (<code>api.ipify.org</code>) — contacted <strong>only</strong> on cloud
+        hosting and <strong>only</strong> when a feature needs this device's public IP (IP-restriction
+        gate, viewer registration). The self-hosted backend never calls it.</li>
+      <li><strong>GitHub</strong> — contacted <strong>only</strong> when a user explicitly submits the
+        in-app feedback form (Beta), to create an issue on the project repository.</li>
+    </ol>
+    <p>That's the whole list. No analytics providers, no ad networks, no telemetry endpoints,
+      no update checks.</p>
+  </div>
+
+  <div class="card">
+    <h2>3 · Cookies &amp; local storage</h2>
+    <p>AdBoard sets no tracking cookies. Authentication state is handled by your chosen auth
+      provider (e.g., Supabase session tokens) and by <code>localStorage</code> entries scoped to your
+      deployment's domain. Clearing site data removes them.</p>
+  </div>
+
+  <div class="card">
+    <h2>4 · Usage terms</h2>
+    <p>AdBoard is licensed under the <a href="/legal/license.html">MIT License</a>:</p>
+    <ul>
+      <li>✅ Use it commercially or privately, at any scale</li>
+      <li>✅ Host it wherever and however you need</li>
+      <li>✅ Modify, extend, and improve it as you see fit</li>
+      <li>✅ Redistribute it, including in proprietary products</li>
+      <li>📋 Keep the copyright + license notice with copies</li>
+      <li>⚠️ <strong>No warranty</strong> — the software is provided “as is”; the author is not liable
+        for damages arising from its use</li>
+    </ul>
+    <p>Third-party components are listed in the
+      <a href="/legal/third-party-notices.html">third-party notices</a>, with a full assessment in the
+      <a href="/legal/foss-review.html">FOSS review</a>.</p>
+  </div>
+
+  <div class="card">
+    <h2>5 · Security disclosures &amp; changes</h2>
+    <p>If you find a security issue, please report it via the in-app feedback form. It's a hobby
+      project — fixes are best-effort, but security reports are taken seriously.</p>
+    <p>This policy describes the software's behavior, not a service. It changes only when the
+      software's actual behavior changes, with history visible in version control.</p>
+  </div>
+
+  <nav>
+    <a href="/legal/license.html">License</a>
+    <a href="/legal/third-party-notices.html">Third-party notices</a>
+    <a href="/legal/foss-review.html">FOSS review</a>
+    <a href="/">← Back to AdBoard</a>
+  </nav>
+</div>
+</body>
+</html>

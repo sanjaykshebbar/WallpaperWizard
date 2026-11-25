@@ -1,0 +1,145 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Core Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Evaluates database-level administrative configuration access
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    // 3. Validation Helpers (Strict Schemas & Type Guards)
+    function isValidInit(data) {
+      return data.keys().hasAll(['setupCompleted', 'setupCompletedAt']) &&
+             data.keys().size() == 2 &&
+             data.setupCompleted is bool &&
+             data.setupCompletedAt is string;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['userId', 'email', 'role', 'createdAt']) &&
+             data.keys().size() == 4 &&
+             data.userId == request.auth.uid &&
+             data.email is string &&
+             data.email.size() <= 256 &&
+             data.role == 'admin' &&
+             data.createdAt is string;
+    }
+
+    function isValidMedia(data) {
+      return data.keys().hasAll([
+        'id', 'title', 'url', 'type', 'mimeType', 'fileName', 'fileSize', 'duration',
+        'isActive', 'sortOrder', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'title', 'url', 'type', 'mimeType', 'fileName', 'fileSize', 'duration',
+        'isActive', 'sortOrder', 'ownerId', 'createdAt', 'updatedAt',
+        'scheduledStart', 'scheduledEnd'
+      ]) &&
+      (!data.keys().hasAny(['scheduledStart']) || data.scheduledStart == null || (data.scheduledStart is string && data.scheduledStart.size() <= 64)) &&
+      (!data.keys().hasAny(['scheduledEnd']) || data.scheduledEnd == null || (data.scheduledEnd is string && data.scheduledEnd.size() <= 64)) &&
+      isValidId(data.id) &&
+      data.title is string && data.title.size() <= 200 &&
+      data.url is string && data.url.size() <= 2048 &&
+      data.type in ['image', 'video'] &&
+      data.mimeType is string && data.mimeType.size() <= 100 &&
+      data.fileName is string && data.fileName.size() <= 256 &&
+      data.fileSize is number && data.fileSize > 0 &&
+      data.duration is number && data.duration > 0 && data.duration <= 3600 &&
+      data.isActive is bool &&
+      data.sortOrder is number &&
+      data.ownerId == request.auth.uid &&
+      data.createdAt is string &&
+      data.updatedAt is string;
+    }
+
+    function isValidDisplaySettings(data) {
+      return data.keys().hasAll(['kioskMode', 'autoplaySeconds', 'transitionEffect', 'updatedBy', 'updatedAt']) &&
+             data.keys().hasOnly(['kioskMode', 'autoplaySeconds', 'transitionEffect', 'updatedBy', 'updatedAt', 'fallbackUrl', 'fallbackType']) &&
+             (!data.keys().hasAny(['fallbackUrl']) || data.fallbackUrl == null || (data.fallbackUrl is string && data.fallbackUrl.size() <= 2048)) &&
+             (!data.keys().hasAny(['fallbackType']) || data.fallbackType == null || data.fallbackType in ['image', 'video']) &&
+             data.kioskMode is bool &&
+             data.autoplaySeconds is number && data.autoplaySeconds > 0 &&
+             data.transitionEffect in ['fade', 'slide', 'zoom'] &&
+             data.updatedBy == request.auth.uid &&
+             data.updatedAt is string;
+    }
+
+    // 4. Match Blocks
+
+    // Initialization Status Checking
+    match /config/init {
+      allow get: if true;
+      allow create: if isSignedIn() && isValidInit(incoming());
+      allow update: if isAdmin() && isValidInit(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['setupCompleted', 'setupCompletedAt'])
+      );
+    }
+
+    // Administrator Accounts
+    match /users/{userId} {
+      // Direct reading is private to the account or admins
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      
+      // Permit bootstrap registration if setup lacks completed flag
+      allow create: if isSignedIn() && (
+        (!exists(/databases/$(database)/documents/config/init)) ||
+        (get(/databases/$(database)/documents/config/init).data.setupCompleted == false) ||
+        isAdmin()
+      ) && isValidUserProfile(incoming());
+
+      allow update: if isAdmin() && request.auth.uid == userId && isValidUserProfile(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['email', 'createdAt'])
+      );
+
+      // Deny delete if attempting self-termination
+      allow delete: if isAdmin() && request.auth.uid != userId;
+    }
+
+    // Advertisement Media Nodes
+    match /media/{mediaId} {
+      allow get, list: if true; // Public kiosk dashboard reads
+      
+      allow create: if isAdmin() && isValidMedia(incoming());
+      allow update: if isAdmin() && isValidMedia(incoming()) && (
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasAny([
+          'title', 'isActive', 'sortOrder', 'duration', 'scheduledStart', 'scheduledEnd', 'updatedAt'
+        ])
+      );
+      allow delete: if isAdmin() && existing().ownerId == request.auth.uid;
+    }
+
+    // Display / Kiosk settings
+    match /settings/displayConfig {
+      allow get: if true; // Kiosks require current screen configs
+      allow create: if isAdmin() && isValidDisplaySettings(incoming());
+      allow update: if isAdmin() && isValidDisplaySettings(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasAny(['kioskMode', 'autoplaySeconds', 'transitionEffect', 'updatedBy', 'updatedAt'])
+      );
+    }
+  }
+}

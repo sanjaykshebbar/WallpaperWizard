@@ -1,0 +1,6 @@
+{
+  "name": "AdBoard V3",
+  "description": "A self-hosted digital advertising board featuring responsive layouts, autoplay screens, video media support, and administrative management tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
