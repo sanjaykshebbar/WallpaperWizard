@@ -10,10 +10,14 @@ Get-WindowsCapability -Online -Name 'OpenSSH.Server*' |
 Set-Service -Name sshd -StartupType Automatic
 Start-Service sshd
 
-# The capability installer normally adds this inbound rule; ensure it either way
-if (-not (Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue)) {
+# Allow inbound 22 on ALL profiles. The installer's rule is often scoped to
+# Private/Domain, so a PC on a "Public" network stays unreachable; force it open.
+$rule = Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue
+if ($rule) {
+  $rule | Set-NetFirewallRule -Enabled True -Profile Any
+} else {
   New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -DisplayName 'OpenSSH Server (sshd)' `
-    -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null
+    -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -Profile Any | Out-Null
 }
 
 Write-Output 'WallpaperWizard: OpenSSH Server is enabled and running.'
