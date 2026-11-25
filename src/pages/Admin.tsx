@@ -245,6 +245,7 @@ export default function Admin() {
 
   const running = !!worker?.running;
   const lastRun = worker?.lastRun;
+  const base = window.location.origin; // devices fetch the setup scripts from the same origin the dashboard is served at
 
   const navBtn = (id: Tab, icon: React.ReactNode, label: string, badge?: number) => (
     <button
@@ -689,19 +690,20 @@ export default function Admin() {
               </form>
 
               <aside className="xl:col-span-5 bg-white rounded-xl border border-slate-200 p-6 space-y-4 text-xs text-slate-600 self-start">
-                <h2 className="font-bold text-slate-900 text-sm">Device prerequisites (one-time)</h2>
                 <div>
-                  <h3 className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5"><Monitor className="w-3.5 h-3.5 text-blue-600" /> Windows 10/11</h3>
-                  <p className="mb-1">Enable OpenSSH Server (admin PowerShell, or push the same via Group Policy/Intune):</p>
-                  <pre className="bg-slate-900 text-slate-100 rounded-lg p-2.5 text-[10px] overflow-x-auto whitespace-pre-wrap">{`Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
-Set-Service sshd -StartupType Automatic
-Start-Service sshd`}</pre>
+                  <h2 className="font-bold text-slate-900 text-sm">One-line device setup</h2>
+                  <p className="mt-1">Run once per device, as administrator, to turn on SSH. These scripts hold <strong>no password</strong>. Devices fetch them from this server, so keep it on your LAN only.</p>
                 </div>
                 <div>
-                  <h3 className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5"><Apple className="w-3.5 h-3.5" /> macOS</h3>
-                  <p>System Settings → General → Sharing → turn on <strong>Remote Login</strong> and allow the admin account. The first push may show a one-time prompt on the Mac asking to let System Events control the desktop; click Allow.</p>
+                  <h3 className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5"><Monitor className="w-3.5 h-3.5 text-blue-600" /> Windows 10/11 — elevated PowerShell</h3>
+                  <pre className="bg-slate-900 text-slate-100 rounded-lg p-2.5 text-[10px] overflow-x-auto whitespace-pre-wrap select-all">{`irm ${base}/setup/windows.ps1 | iex`}</pre>
                 </div>
-                <p>Allow TCP port 22 from this server to the devices in your firewall.</p>
+                <div>
+                  <h3 className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5"><Apple className="w-3.5 h-3.5" /> macOS — Terminal</h3>
+                  <pre className="bg-slate-900 text-slate-100 rounded-lg p-2.5 text-[10px] overflow-x-auto whitespace-pre-wrap select-all">{`curl -fsSL ${base}/setup/macos.sh | sudo bash`}</pre>
+                  <p className="mt-1">Recent macOS may need Terminal to have Full Disk Access first, and the first wallpaper push shows a one-time "allow System Events" prompt.</p>
+                </div>
+                <p>Devices must be able to reach this server and allow inbound TCP 22. SSH stays open to all local accounts; pushes sign in as <code className="text-slate-800">{pushForm.username || 'ithelpdesk'}</code>.</p>
               </aside>
             </div>
           )}

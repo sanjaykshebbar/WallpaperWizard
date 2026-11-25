@@ -37,6 +37,20 @@ network blocks NAT'd traffic, use `network_mode: host`.
 
 ## Device prerequisites (one-time)
 
+Each device needs SSH turned on once. The dashboard (Push Settings) shows a one-line command per OS that
+fetches a secret-free script from this server and enables SSH with no further clicks — run it as administrator:
+
+```powershell
+irm http://<server>:8080/setup/windows.ps1 | iex      # Windows, elevated PowerShell
+```
+```bash
+curl -fsSL http://<server>:8080/setup/macos.sh | sudo bash   # macOS, Terminal
+```
+
+With no domain or MDM, that one admin-run command per device is the minimum: nothing can enable SSH remotely
+before SSH exists. The scripts live in `public/setup/` and carry no credentials; keep the server on your LAN.
+
+
 | OS | Enable | Notes |
 |----|--------|-------|
 | Windows 10/11 | OpenSSH Server: `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0`, `Set-Service sshd -StartupType Automatic`, `Start-Service sshd` (or deploy via GPO/Intune) | The wallpaper is applied through a scheduled task `WallpaperWizard` that runs as the signed-in user, now and at every logon. Files live in `C:\ProgramData\WallpaperWizard`. |
