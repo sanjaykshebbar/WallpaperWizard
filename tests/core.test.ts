@@ -7,13 +7,15 @@ import { resolveWallpaper } from "../src/shared/resolveWallpaper";
 import { expandScanRange } from "../src/shared/ipMatch";
 import { probeBanner, fetchHostFingerprint, pushWallpaper } from "../devicePush";
 import { DISCOVERY_MARKERS, discoveredOs, isManagedDevice, isMacBook } from "../src/shared/deviceDiscovery";
-import { setupDownloadUrls } from "../src/shared/setupScripts";
+import { setupDownloadUrls, setupSourceUrls } from "../src/shared/setupScripts";
 
 test("setup commands expose only WallpaperWizard routes", () => {
   assert.deepEqual(setupDownloadUrls(), {
     windows: "/setup/windows.ps1",
     macos: "/setup/macos.sh",
   });
+  assert.match(setupSourceUrls.windows, /^https:\/\/raw\.githubusercontent\.com\/sanjaykshebbar\/WallpaperWizard\/[a-f0-9]{40}\/public\/setup\/windows\.ps1$/);
+  assert.match(setupSourceUrls.macos, /^https:\/\/raw\.githubusercontent\.com\/sanjaykshebbar\/WallpaperWizard\/[a-f0-9]{40}\/public\/setup\/macos\.sh$/);
   assert.deepEqual(setupDownloadUrls("https://setup.example.test/"), {
     windows: "https://setup.example.test/setup/windows.ps1",
     macos: "https://setup.example.test/setup/macos.sh",

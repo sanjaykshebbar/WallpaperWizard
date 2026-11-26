@@ -29,6 +29,9 @@ export function ChangeLog() {
   return (
     <Article>
       <p className="font-medium text-slate-900">Installed version <code>v{version}</code></p>
+      <Section id="version-1-4-2" title="v1.4.2">
+        <p>The server fetches a pinned setup script from the public WallpaperWizard GitHub repository. The dashboard displays the server’s download links.</p>
+      </Section>
       <Section id="version-1-4-1" title="v1.4.1">
         <p>WallpaperWizard serves the setup scripts from the installed application. Push Settings, Documentation, and Script Change Log use the server’s download links.</p>
       </Section>
@@ -126,7 +129,7 @@ export function Documentation() {
           <li>Sign in as a superadmin. In <strong>Push Settings</strong>, save the password for the required local administrator account. Use <code>{WINDOWS_DEVICE_ADMIN}</code> on Windows and <code>{MAC_DEVICE_ADMIN}</code> on MacBooks. Allow the MacBook account in Remote Login settings.</li>
           <li>Add the IP addresses or IPv4 CIDR ranges you manage, one per line. A single range can be as large as <code>/20</code>, and a scan checks up to 4,096 addresses across all ranges. The server must be able to reach device TCP port 22.</li>
           <li>
-            Run the current command on each client device. It downloads the setup script from your WallpaperWizard server. Use a server address that the client device can reach.
+            Run the current command on each client device. Your WallpaperWizard server retrieves the setup script from GitHub. Use a server address that the client device can reach.
             {setupScripts ? (
               <>
                 <h3 className="mt-3 font-semibold text-slate-900">Windows 10/11</h3>

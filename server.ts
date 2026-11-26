@@ -8,7 +8,7 @@ import { ipIsAllowed, isValidAllowlistEntry, normalizeIp, expandScanRange, MAX_S
 import { resolveWallpaper } from "./src/shared/resolveWallpaper";
 import { DISCOVERY_MARKERS, discoveredOs, isManagedDevice } from "./src/shared/deviceDiscovery";
 import { isDeviceAdminUsername, MAC_DEVICE_ADMIN } from "./src/shared/deviceAccount";
-import { setupDownloadUrls, setupPaths } from "./src/shared/setupScripts";
+import { setupDownloadUrls, setupPaths, setupSourceUrls } from "./src/shared/setupScripts";
 import { probeBanner, fetchHostFingerprint, pushWallpaper, mapLimit } from "./devicePush";
 import type { Wallpaper, Device, WorkerStatus } from "./src/types";
 
@@ -522,11 +522,21 @@ function scheduleCycles() {
   }, minutes * 60_000);
 }
 
-function serveSetupScript(bundledFile: string): express.RequestHandler {
-  return (_req, res) => {
-    res.set({ "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" })
-      .type("text/plain")
-      .sendFile(bundledFile, { cacheControl: false });
+function serveSetupScript(source: string): express.RequestHandler {
+  let download: Promise<Buffer> | undefined;
+  return async (_req, res) => {
+    res.set({ "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" }).type("text/plain");
+    const pending = download ??= fetch(source, { redirect: "error", signal: AbortSignal.timeout(5_000) })
+      .then(async response => {
+        if (!response.ok) throw new Error("GitHub setup script download failed.");
+        return Buffer.from(await response.arrayBuffer());
+      });
+    try {
+      res.send(await pending);
+    } catch {
+      if (download === pending) download = undefined;
+      res.status(502).send("Could not download the setup script from GitHub. Try again shortly.");
+    }
   };
 }
 
@@ -534,7 +544,6 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
   const setupScripts = setupDownloadUrls(process.env.WW_SETUP_BASE_URL);
-  const setupDirectory = path.join(process.cwd(), process.env.NODE_ENV === "production" ? "dist" : "public", "setup");
 
   // Respect X-Forwarded-For when running behind nginx/Docker ingress so the
   // IP restriction sees the real client address
@@ -546,8 +555,8 @@ async function startServer() {
 
   // Static files middleware for local uploaded media
   app.use("/uploads", express.static(UPLOADS_DIR));
-  app.get(setupPaths.windows, serveSetupScript(path.join(setupDirectory, "windows.ps1")));
-  app.get(setupPaths.macos, serveSetupScript(path.join(setupDirectory, "macos.sh")));
+  app.get(setupPaths.windows, serveSetupScript(setupSourceUrls.windows));
+  app.get(setupPaths.macos, serveSetupScript(setupSourceUrls.macos));
 
   // --- API Endpoints for Self-Hosted Offline Docker Setup ---
 

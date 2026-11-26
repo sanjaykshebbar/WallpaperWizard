@@ -9,6 +9,7 @@ flowchart LR
     Browser[Dashboard browser] -->|HTTP or HTTPS| Server[Express API and scan worker]
     Server -->|Settings, device records, audit and images| Data[(Server data directory)]
     Client[Windows PC or MacBook] -->|Setup script download| Server
+    Server -->|HTTPS fetch at a pinned revision| GitHub[Public WallpaperWizard repo]
     Server -->|TCP 22 banner and host-key checks| Client
     Server -->|Pinned SSH login and SFTP upload| Client
 ```
@@ -21,7 +22,7 @@ flowchart LR
 | Windows PowerShell setup | Check `.\ithelpdesk`, enable OpenSSH, and add the Windows discovery marker. The service restarts when its discovery configuration changes. |
 | MacBook shell setup | Check `ithelpdesk` and the Mac hardware model, enable Remote Login, and add the MacBook discovery marker. Setup can open the Full Disk Access approval pane if macOS requests it. |
 
-The browser connects to the app's HTTP or HTTPS origin. The default ports are 3000 for the local Node server and 8080 for Docker Compose. During setup, the managed device downloads the script bundled with this application. The dashboard origin supplies the URLs unless the deployment sets `WW_SETUP_BASE_URL`. After setup, the server needs outbound TCP 22 to the managed device, and the device's firewall must allow that connection.
+The browser connects to the app's HTTP or HTTPS origin. The default ports are 3000 for the local Node server and 8080 for Docker Compose. For each setup script, the server fetches the pinned revision from the public WallpaperWizard GitHub repository on the first successful request and keeps it in memory. The dashboard origin supplies the client URLs unless the deployment sets `WW_SETUP_BASE_URL`. After setup, the server needs outbound TCP 22 to the managed device, and the device's firewall must allow that connection.
 
 ## Discovery and delivery
 
@@ -52,6 +53,7 @@ The browser connects to the app's HTTP or HTTPS origin. The default ports are 30
 | A push reports authentication or account failure | Verify the password in Push Settings, the local account's administrator rights, and its SSH access. Check Last push on the device row for the failure message. |
 | No image appears after a push | Check the current schedule and assignment. Check Last push and confirm an interactive user is signed in. Use Push to resend the active assignment. |
 | Setup command cannot reach the server | Open the dashboard through its LAN address or deployment hostname, then copy the current command. If a branded origin is configured, verify that it routes both setup paths to WallpaperWizard. |
+| Setup download returns HTTP 502 | Check whether the WallpaperWizard server can reach `raw.githubusercontent.com` over HTTPS, then retry. |
 
 ## Source map
 

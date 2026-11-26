@@ -44,7 +44,8 @@ network blocks NAT'd traffic, use `network_mode: host`.
 
 Each device needs SSH turned on once. Push Settings and Documentation show the setup commands. Run the
 Windows command in an elevated PowerShell and the MacBook command with sudo in Terminal. WallpaperWizard
-serves the scripts bundled with the installed application from [public/setup](public/setup/).
+fetches the scripts from a pinned revision of the public `WallpaperWizard` GitHub repository. The server
+needs HTTPS access to `raw.githubusercontent.com`.
 
 On a MacBook, follow the terminal guidance if macOS requests Full Disk Access. You can enable Remote Login
 in Sharing settings and rerun the script with your existing Terminal permissions. Both setup scripts
