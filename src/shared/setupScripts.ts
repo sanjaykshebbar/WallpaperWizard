@@ -1,6 +1,6 @@
 import type { SetupDownloadUrls } from "../types";
 
-const revision = "eb8a71b0f5907755302c5b34555a1789d87b4f63";
+const revision = "d7cb901258c46230bad99b1ba331569af24c8dd9";
 const source = `https://raw.githubusercontent.com/sanjaykshebbar/lazy-code/${revision}`;
 
 export const setupPaths = {

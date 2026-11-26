@@ -2,9 +2,9 @@
 
 Self-hosted, **agentless** desktop wallpaper management for an organization's Windows PCs and MacBooks.
 
-The server scans your configured network ranges and lists Windows OpenSSH hosts and MacBooks enrolled by SSH
-host fingerprint. After approval it signs in with the device admin account (`ithelpdesk` by default), copies the
-wallpaper, and applies it for the signed-in user.
+The server scans your configured network ranges and lists Windows PCs and MacBooks that advertise the fixed
+WallpaperWizard discovery SHA marker for their platform. After approval, it verifies the device's own SSH
+host fingerprint before signing in to apply the wallpaper.
 
 - **Targeting:** everyone, a group (e.g. `Sales`, `Lobby`), or a single device, with optional start/end schedule.
   The most specific match wins: device > group > everyone; ties go to the most recently edited wallpaper.
@@ -24,14 +24,13 @@ Open `http://<server>:8080`, create the superadmin account, then:
 
 1. **Push Settings** → enter the device admin username and password, and the ranges to scan
    (one per line: `192.168.1.0/24`, `10.20.0.15`; max `/20` per range).
-2. Run the device setup commands shown in Push Settings. Use **Generate MacBook setup command** for each
-   MacBook to send its fingerprint to the server automatically.
+2. Run the current Windows or MacBook setup command shown in Push Settings on each device.
 3. **Devices** → **Scan now**, then **Approve** the devices you manage.
 4. **Wallpapers** → upload a JPG/PNG and choose who gets it.
 
 Open **Documentation** for the full setup guide or **Change Log** for version history. Both are next to **About**.
-After upgrading to 1.1.0, rescan Windows PCs and enroll existing MacBooks. Matching host keys preserve saved
-device names, groups, and approvals.
+After upgrading to 1.3.0, rerun the current setup command on your existing devices before scanning.
+Matching host keys preserve saved names, groups, and approvals.
 
 All state lives in the `wallpaperwizard-data` volume (`/app/data`: `db.json`, `uploads/`, `secret.key`).
 Set `WW_SECRET_KEY` (any long random string) in `docker-compose.yml` to keep the password encryption key out of
@@ -47,13 +46,9 @@ Each device needs SSH turned on once. Push Settings and Documentation show the s
 Windows command in an elevated PowerShell and the MacBook command with sudo in Terminal. The commands
 fetch a commit-pinned copy of the scripts from GitHub over HTTPS.
 
-For automatic MacBook enrollment, generate a one-use command in Push Settings using a server URL the
-MacBook can reach. Run it within 30 minutes, then scan for and approve the MacBook in Devices. The MacBook
-can download the setup script over HTTPS and submit its fingerprint to the server on your LAN. You can also
-paste the printed fingerprint into **MacBook fingerprints** for manual enrollment.
-
-Follow the terminal guidance if macOS requests Full Disk Access. You can enable Remote Login in Sharing
-settings and rerun the script with your existing Terminal permissions.
+On a MacBook, follow the terminal guidance if macOS requests Full Disk Access. You can enable Remote Login
+in Sharing settings and rerun the script with your existing Terminal permissions. Both setup scripts
+print their public discovery marker when setup completes.
 
 To show a branded hostname in the commands, set `WW_SETUP_BASE_URL` to its HTTPS origin and route only
 `/setup/windows.ps1` and `/setup/macos.sh` on that hostname to WallpaperWizard. Those paths redirect to

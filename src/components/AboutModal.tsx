@@ -25,9 +25,9 @@ export default function AboutModal({ onClose }: { onClose: () => void }) {
             <Server className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
             <p>
               <strong className="text-slate-900">How it works.</strong> The server scans the network ranges you
-              configure for Windows PCs and enrolled MacBooks running SSH. Once you approve a device, it signs in with the shared admin
-              account, copies the wallpaper over, and applies it for the signed-in user. Nothing is installed on
-              the device except the image and, on Windows, a scheduled task that re-applies it at sign-in.
+              configure for Windows PCs and MacBooks that advertise a WallpaperWizard discovery marker over SSH.
+              Once you approve a device, the server signs in with the shared admin account, copies the wallpaper,
+              and applies it for the signed-in user.
             </p>
           </div>
           <div className="flex items-start gap-3">

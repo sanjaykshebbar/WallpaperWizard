@@ -1,29 +1,28 @@
 import type { Device } from "../types";
 
-export type ManagedDeviceOs = "windows" | "macos";
+export const DISCOVERY_MARKERS = {
+  windows: "WW_WINDOWS_SHA256_7bd18925be67c4757a7dd7c9d4143179a406acd51120ae404b03a8c5d7daa69a",
+  macos: "WW_MACOS_SHA256_987ead801447509838f013e86c3cefee3ea3a8f02593f3dcf342937ca9071bb1"
+} as const;
 
-export function isSshFingerprint(value: unknown): value is string {
-  return typeof value === "string" && value.length === 50 &&
-    /^SHA256:[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]$/.test(value);
-}
+export type ManagedDeviceOs = keyof typeof DISCOVERY_MARKERS;
 
-export function deviceIdFromDigest(digest: Buffer): string {
-  return digest.subarray(0, 16).toString("hex");
-}
-
-export function discoveredOs(banner: string, fingerprint: string, macBookKeys: ReadonlySet<string>): ManagedDeviceOs | null {
-  if (macBookKeys.has(fingerprint)) return "macos";
-  if (/^SSH-(?:2\.0|1\.99)-OpenSSH_for_Windows_\S+(?:\s|$)/.test(banner)) return "windows";
-  return null;
+export function discoveredOs(banner: string): ManagedDeviceOs | null {
+  const [ident, ...addendum] = banner.split(/[ \t]+/);
+  if (!/^SSH-(?:2\.0|1\.99)-OpenSSH_\S+$/.test(ident)) return null;
+  const windows = addendum.includes(DISCOVERY_MARKERS.windows);
+  const macos = addendum.includes(DISCOVERY_MARKERS.macos);
+  if (windows === macos) return null;
+  const windowsSsh = /-OpenSSH_for_Windows_/.test(ident);
+  return windows && windowsSsh ? "windows" : macos && !windowsSsh ? "macos" : null;
 }
 
 export function isManagedDevice(
-  device: Pick<Device, "os" | "sshFingerprint" | "enrolledBySetup">,
-  macBookKeys: ReadonlySet<string>
+  device: Pick<Device, "os" | "sshFingerprint" | "discoveryMarker">
 ): device is { os: ManagedDeviceOs; sshFingerprint: string } {
   return !!device.sshFingerprint &&
-    (device.os === "windows" ||
-      (device.os === "macos" && (device.enrolledBySetup === true || macBookKeys.has(device.sshFingerprint))));
+    (device.os === "windows" || device.os === "macos") &&
+    device.discoveryMarker === DISCOVERY_MARKERS[device.os];
 }
 
 export function isMacBook(model: string): boolean {

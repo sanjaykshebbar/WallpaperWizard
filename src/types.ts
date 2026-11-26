@@ -63,8 +63,8 @@ export type DeviceStatus = 'pending' | 'approved' | 'ignored';
 
 export interface Device {
   id: string;              // Stable device ID derived from its SSH host key
-  sshFingerprint?: string; // Full OpenSSH SHA256 host fingerprint
-  enrolledBySetup?: boolean; // MacBook fingerprint submitted by the setup script
+  sshFingerprint?: string; // Full OpenSSH SHA256 fingerprint, saved on discovery
+  discoveryMarker?: string; // Public platform marker observed in the SSH banner
   ip: string;
   hostname: string | null;
   label: string | null;    // admin-assigned name
@@ -87,9 +87,7 @@ export interface PushSettings {
   username: string;
   hasPassword: boolean;
   scanRanges: string[];
-  macBookKeys: string[];
   intervalMinutes: number;
-  autoApprove: boolean;
   setupScripts: SetupDownloadUrls;
   updatedBy?: string | null;
   updatedAt?: string | null;

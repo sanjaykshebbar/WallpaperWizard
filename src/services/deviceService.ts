@@ -22,10 +22,6 @@ export const DeviceService = {
     return api('/api/push-settings');
   },
 
-  createMacBookEnrollment(): Promise<{ code: string; expiresAt: number }> {
-    return api('/api/macbook-enrollment', { method: 'POST' });
-  },
-
   /** `password` is write-only: leave it empty to keep the saved one. */
   async saveSettings(settings: Omit<PushSettings, 'hasPassword' | 'setupScripts' | 'updatedBy' | 'updatedAt'> & { password?: string }): Promise<void> {
     await api('/api/push-settings', { json: settings });
