@@ -93,7 +93,7 @@ export function Documentation() {
                 <h3 className="mt-3 font-semibold text-slate-900">MacBook</h3>
                 <p>Open Terminal and run the setup script with <code>sudo</code>.</p>
                 <pre className={commandBlock}><code>{`curl -fsSL '${setupScripts.macos}' | sudo bash`}</code></pre>
-                <p className="mt-2">If macOS requests Full Disk Access for Terminal, approve it in <strong>System Settings → Privacy &amp; Security → Full Disk Access</strong> and reopen Terminal. You can also enable Remote Login directly in <strong>System Settings → General → Sharing</strong> and rerun setup.</p>
+                <p className="mt-2">If macOS requests Full Disk Access, setup opens the approval pane. Enable Terminal in <strong>Privacy &amp; Security → Full Disk Access</strong>, then quit and reopen Terminal before rerunning setup. You can also enable Remote Login directly in <strong>System Settings → General → Sharing</strong> and rerun setup.</p>
               </>
             ) : <p role="status">Loading setup commands…</p>}
           </li>
