@@ -65,6 +65,7 @@ test("discovery accepts the Windows SSH identifier or an enrolled MacBook key", 
   assert.equal(discoveredOs("SSH-2.0-OpenSSH_9.9", otherKey, enrolled), null);
   assert.equal(discoveredOs("SSH-2.0-OpenSSH_9.9 Ubuntu contains windows", otherKey, enrolled), null);
   assert.equal(isSshFingerprint(fingerprint), true);
+  assert.equal(isSshFingerprint(fingerprint + "\n"), false);
   assert.equal(isSshFingerprint("SHA256:" + "B".repeat(43)), false);
 });
 
@@ -74,6 +75,8 @@ test("the device list and push targets hide unsupported and unenrolled devices",
   assert.equal(isManagedDevice({ os: "windows", sshFingerprint }, enrolled), true);
   assert.equal(isManagedDevice({ os: "macos", sshFingerprint }, enrolled), true);
   assert.equal(isManagedDevice({ os: "macos", sshFingerprint }, new Set()), false);
+  assert.equal(isManagedDevice({ os: "macos", sshFingerprint, enrolledBySetup: true }, new Set()), true);
+  assert.equal(isManagedDevice({ os: "other", sshFingerprint, enrolledBySetup: true }, new Set()), false);
   assert.equal(isManagedDevice({ os: "other", sshFingerprint }, enrolled), false);
   assert.equal(isManagedDevice({ os: null }, enrolled), false);
 });

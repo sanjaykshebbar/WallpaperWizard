@@ -37,7 +37,10 @@ function toLocalInput(iso: string | null): string {
 }
 
 const fmt = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '');
-const deviceName = (d: Device) => d.label || d.hostname || d.ip || d.id.slice(0, 8);
+const deviceName = (d: Device) => d.label || d.hostname || d.ip ||
+  (d.enrolledBySetup ? `MacBook ${d.sshFingerprint?.slice(7, 15) || d.id.slice(0, 8)}` : d.id.slice(0, 8));
+const canApprove = (d: Device) => !d.enrolledBySetup || !!d.ip;
+const bashQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 const inputClass = 'w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 placeholder-slate-400';
 const btnPrimary = 'bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold px-3.5 py-2 rounded-lg text-xs flex items-center justify-center gap-1.5 cursor-pointer';
@@ -78,6 +81,9 @@ export default function Admin() {
 
   // Push settings form
   const [pushForm, setPushForm] = useState({ username: 'ithelpdesk', password: '', ranges: '', macBookKeys: '', interval: 15, autoApprove: false });
+  const [enrollmentServer, setEnrollmentServer] = useState(() => window.location.origin);
+  const [enrollmentCommand, setEnrollmentCommand] = useState('');
+  const [creatingEnrollment, setCreatingEnrollment] = useState(false);
 
   const flash = (ok: boolean, text: string) => setMessage({ ok, text });
   const fail = (err: unknown) => flash(false, err instanceof Error ? err.message : String(err));
@@ -116,6 +122,7 @@ export default function Admin() {
 
   const groups = [...new Set(devices.map(d => d.group).filter(Boolean) as string[])].sort();
   const pending = devices.filter(d => d.status === 'pending');
+  const readyToApprove = pending.filter(canApprove);
 
   // ---- Wallpapers ----
 
@@ -215,16 +222,40 @@ export default function Admin() {
     DeviceService.update(d.id, changes).then(refresh).catch(fail);
 
   const approveAll = () => runAction(
-    async () => { for (const d of pending) await DeviceService.update(d.id, { status: 'approved' }); },
-    `Approved ${pending.length} device${pending.length === 1 ? '' : 's'}. Pushing their wallpapers now.`
+    async () => { for (const d of readyToApprove) await DeviceService.update(d.id, { status: 'approved' }); },
+    `Approved ${readyToApprove.length} device${readyToApprove.length === 1 ? '' : 's'}. Pushing their wallpapers now.`
   );
 
   const removeDevice = async (d: Device) => {
-    if (!window.confirm(`Remove ${deviceName(d)}? It will reappear as pending on the next scan if it is still reachable.`)) return;
+    const consequence = d.enrolledBySetup
+      ? 'This removes the enrollment created by the setup command.'
+      : 'The device will reappear on the next scan if it is still reachable.';
+    if (!window.confirm(`Remove ${deviceName(d)}? ${consequence}`)) return;
     runAction(() => DeviceService.remove(d.id), 'Device removed.');
   };
 
   // ---- Push settings ----
+
+  const generateMacBookCommand = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!settings) return;
+    setMessage(null);
+    setEnrollmentCommand('');
+    setCreatingEnrollment(true);
+    try {
+      const server = new URL(enrollmentServer.trim());
+      if (!['http:', 'https:'].includes(server.protocol) || server.href !== `${server.origin}/`) {
+        throw new Error('Enter the WallpaperWizard server URL, such as http://192.168.1.20:3000.');
+      }
+      const { code } = await DeviceService.createMacBookEnrollment();
+      const endpoint = server.origin + '/api/macbook-enrollment/complete';
+      setEnrollmentCommand(`curl -fsSL ${bashQuote(settings.setupScripts.macos)} | sudo bash -s -- ${bashQuote(endpoint)} ${bashQuote(code)}`);
+    } catch (err) {
+      fail(err);
+    } finally {
+      setCreatingEnrollment(false);
+    }
+  };
 
   const saveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -528,8 +559,8 @@ export default function Admin() {
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  {isSuperadmin && pending.length > 0 && (
-                    <button onClick={approveAll} className={btnSecondary} id="approve-all-btn"><CheckCircle2 className="w-3.5 h-3.5" /> Approve all ({pending.length})</button>
+                  {isSuperadmin && readyToApprove.length > 0 && (
+                    <button onClick={approveAll} className={btnSecondary} id="approve-all-btn"><CheckCircle2 className="w-3.5 h-3.5" /> Approve all ({readyToApprove.length})</button>
                   )}
                   {isSuperadmin && (
                     <button onClick={() => runAction(DeviceService.scanNow, 'Scan started. Devices appear here as they are found.')} disabled={running} className={btnSecondary} id="scan-btn">
@@ -547,7 +578,7 @@ export default function Admin() {
                   <MonitorSmartphone className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                   <h3 className="font-bold text-slate-800 text-sm mb-1">No devices found yet</h3>
                   <p className="text-xs text-slate-500 max-w-md mx-auto">
-                    Add your network ranges and any MacBook fingerprints in Push Settings, then select Scan now.
+                    Add your network ranges and generate a MacBook setup command in Push Settings, then select Scan now.
                     Windows PCs need OpenSSH Server. MacBooks need Remote Login.
                   </p>
                 </div>
@@ -579,12 +610,15 @@ export default function Admin() {
                                     <input
                                       aria-label="Device name"
                                       defaultValue={d.label || ''}
-                                      placeholder={d.hostname || d.ip}
+                                      placeholder={d.hostname || d.ip || deviceName(d)}
                                       onBlur={e => e.target.value !== (d.label || '') && updateDevice(d, { label: e.target.value })}
                                       className="bg-transparent font-semibold text-slate-900 border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:outline-none w-40"
                                     />
                                   ) : <div className="font-semibold text-slate-900">{deviceName(d)}</div>}
-                                  <div className="text-[10px] text-slate-400 font-mono">{d.ip || 'offline'}{d.hostname && d.label ? ` · ${d.hostname}` : ''}</div>
+                                  <div className="text-[10px] text-slate-400 font-mono" title={d.sshFingerprint}>
+                                    {d.ip || (d.enrolledBySetup && d.status === 'pending' ? 'Awaiting scan' : 'offline')}
+                                    {d.hostname && d.label ? ` · ${d.hostname}` : ''}
+                                  </div>
                                 </div>
                               </div>
                             </td>
@@ -629,7 +663,7 @@ export default function Admin() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex gap-1.5 justify-end">
-                                {isSuperadmin && d.status !== 'approved' && (
+                                {isSuperadmin && d.status !== 'approved' && canApprove(d) && (
                                   <button onClick={() => updateDevice(d, { status: 'approved' })} className={btnSecondary} aria-label={`Approve ${deviceName(d)}`}><Check className="w-3.5 h-3.5" /> Approve</button>
                                 )}
                                 {d.status === 'approved' && (
@@ -693,7 +727,7 @@ export default function Admin() {
                     onChange={e => setPushForm({ ...pushForm, macBookKeys: e.target.value })}
                     aria-describedby="macbook-keys-help" spellCheck={false} />
                   <p id="macbook-keys-help" className="mt-1 text-[11px] text-slate-500">
-                    Paste one SHA256 fingerprint per line from the setup output on each MacBook. Save before scanning.
+                    For manual enrollment, paste one SHA256 fingerprint per line from the setup output. Save before scanning.
                   </p>
                 </div>
 
@@ -705,8 +739,8 @@ export default function Admin() {
                   <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
                     <input type="checkbox" className="mt-0.5 accent-violet-600" checked={pushForm.autoApprove} onChange={e => setPushForm({ ...pushForm, autoApprove: e.target.checked })} />
                     <span>
-                      Auto-approve newly enrolled MacBooks
-                      <span className="block text-[10px] text-slate-500">New Windows PCs always require approval.</span>
+                      Auto-approve manually enrolled MacBooks
+                      <span className="block text-[10px] text-slate-500">Windows PCs and MacBooks enrolled by a setup command require approval.</span>
                     </span>
                   </label>
                 </div>
@@ -730,8 +764,23 @@ export default function Admin() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5"><Apple className="w-3.5 h-3.5" /> MacBook — Terminal</h3>
-                  {setupScripts && <pre className="bg-slate-900 text-slate-100 rounded-lg p-2.5 text-[10px] overflow-x-auto whitespace-pre-wrap select-all">{`curl -fsSL '${setupScripts.macos}' | sudo bash`}</pre>}
-                  <p className="mt-1">Copy the printed fingerprint to MacBook fingerprints. Follow the instructions in Terminal if macOS needs your approval.</p>
+                  <form onSubmit={generateMacBookCommand} className="space-y-2">
+                    <label htmlFor="enrollment-server" className="block font-medium text-slate-700">Server URL the MacBook can reach</label>
+                    <input id="enrollment-server" type="url" value={enrollmentServer} required disabled={creatingEnrollment} className={inputClass}
+                      onChange={e => { setEnrollmentServer(e.target.value); setEnrollmentCommand(''); }} />
+                    <p className="text-slate-500">Use the server’s LAN IP or hostname. The command submits the MacBook’s fingerprint and is valid for one enrollment within 30 minutes.</p>
+                    <button type="submit" disabled={!setupScripts || creatingEnrollment} className={btnSecondary} id="generate-macbook-command">
+                      {creatingEnrollment ? 'Generating…' : 'Generate MacBook setup command'}
+                    </button>
+                    {enrollmentCommand && (
+                      <pre id="macbook-enrollment-command" className="bg-slate-900 text-slate-100 rounded-lg p-2.5 text-[10px] overflow-x-auto whitespace-pre-wrap select-all">{enrollmentCommand}</pre>
+                    )}
+                  </form>
+                  {setupScripts && <details className="mt-3">
+                    <summary className="cursor-pointer font-medium text-slate-700">Manual setup command</summary>
+                    <pre className="mt-2 bg-slate-900 text-slate-100 rounded-lg p-2.5 text-[10px] overflow-x-auto whitespace-pre-wrap select-all">{`curl -fsSL ${bashQuote(setupScripts.macos)} | sudo bash`}</pre>
+                    <p className="mt-1">Paste the printed fingerprint into MacBook fingerprints.</p>
+                  </details>}
                 </div>
                 {!setupScripts && <p role="status">Loading setup commands…</p>}
                 <p>Allow TCP 22 from the WallpaperWizard server to the devices. Pushes sign in as <code className="text-slate-800">{pushForm.username || 'ithelpdesk'}</code>.</p>

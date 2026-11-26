@@ -24,8 +24,8 @@ Open `http://<server>:8080`, create the superadmin account, then:
 
 1. **Push Settings** → enter the device admin username and password, and the ranges to scan
    (one per line: `192.168.1.0/24`, `10.20.0.15`; max `/20` per range).
-2. Run the device setup commands shown in Push Settings. Paste the fingerprint printed by each MacBook into
-   **MacBook fingerprints**, one per line, then save.
+2. Run the device setup commands shown in Push Settings. Use **Generate MacBook setup command** for each
+   MacBook to send its fingerprint to the server automatically.
 3. **Devices** → **Scan now**, then **Approve** the devices you manage.
 4. **Wallpapers** → upload a JPG/PNG and choose who gets it.
 
@@ -47,9 +47,13 @@ Each device needs SSH turned on once. Push Settings and Documentation show the s
 Windows command in an elevated PowerShell and the MacBook command with sudo in Terminal. The commands
 fetch a commit-pinned copy of the scripts from GitHub over HTTPS.
 
-On a MacBook, follow the terminal guidance if macOS requests Full Disk Access. You can enable Remote Login
-in Sharing settings and rerun the script with your existing Terminal permissions. Copy the fingerprint the
-script prints into Push Settings.
+For automatic MacBook enrollment, generate a one-use command in Push Settings using a server URL the
+MacBook can reach. Run it within 30 minutes, then scan for and approve the MacBook in Devices. The MacBook
+can download the setup script over HTTPS and submit its fingerprint to the server on your LAN. You can also
+paste the printed fingerprint into **MacBook fingerprints** for manual enrollment.
+
+Follow the terminal guidance if macOS requests Full Disk Access. You can enable Remote Login in Sharing
+settings and rerun the script with your existing Terminal permissions.
 
 To show a branded hostname in the commands, set `WW_SETUP_BASE_URL` to its HTTPS origin and route only
 `/setup/windows.ps1` and `/setup/macos.sh` on that hostname to WallpaperWizard. Those paths redirect to

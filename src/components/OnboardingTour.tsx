@@ -36,7 +36,7 @@ const STEPS: TourStep[] = [
   {
     icon: <KeyRound className="w-8 h-8 text-blue-600" />,
     title: '1. Save the device credentials',
-    body: 'Open Push Settings. Enter the device admin username and password, then add your network ranges. Run the setup command on each device and paste each MacBook fingerprint into Push Settings before saving.'
+    body: 'Open Push Settings. Enter the device admin username and password, then add your network ranges. Generate a setup command for each MacBook to send its fingerprint automatically.'
   },
   {
     icon: <Radar className="w-8 h-8 text-blue-600" />,

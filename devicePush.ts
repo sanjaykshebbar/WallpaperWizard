@@ -10,7 +10,7 @@
 import net from "net";
 import crypto from "crypto";
 import { Client } from "ssh2";
-import { isMacBook, type ManagedDeviceOs } from "./src/shared/deviceDiscovery";
+import { deviceIdFromDigest, isMacBook, type ManagedDeviceOs } from "./src/shared/deviceDiscovery";
 
 export interface Credentials {
   username: string;
@@ -42,7 +42,7 @@ export function probeBanner(ip: string, timeoutMs = 1500, port = 22): Promise<st
 
 function fingerprint(key: Buffer): { id: string; sha256: string } {
   const digest = crypto.createHash("sha256").update(key).digest();
-  return { id: digest.toString("hex").slice(0, 32), sha256: `SHA256:${digest.toString("base64").replace(/=+$/, "")}` };
+  return { id: deviceIdFromDigest(digest), sha256: `SHA256:${digest.toString("base64").replace(/=+$/, "")}` };
 }
 
 /** Completes the SSH key exchange only (no login, no password sent) to learn the host-key fingerprint. */

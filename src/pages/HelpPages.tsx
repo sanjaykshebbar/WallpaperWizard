@@ -28,6 +28,9 @@ export function ChangeLog() {
   return (
     <Article>
       <p className="font-medium text-slate-900">Installed version <code>v{version}</code></p>
+      <Section id="version-1-2" title="v1.2.0">
+        <p>Superadmins can generate a one-use MacBook setup command that sends the SSH fingerprint to WallpaperWizard. The enrolled MacBook appears in Devices and can be approved once a scan recognizes its host key.</p>
+      </Section>
       <Section id="version-1-1" title="v1.1.0">
         <ul className={list}>
           <li>Discovered devices now shows Windows PCs and enrolled MacBooks. Linux servers, other SSH hosts, and unclassified records are hidden.</li>
@@ -71,7 +74,7 @@ export function Documentation() {
       </nav>
 
       <Section id="how-it-works" title="How WallpaperWizard works">
-        <p>The server checks TCP port 22 in your configured network ranges. Windows PCs are identified by the Windows OpenSSH banner. A MacBook is discovered when its public SSH host fingerprint matches one entered in Push Settings. The scan records supported devices without signing in.</p>
+        <p>The server checks TCP port 22 in your configured network ranges. Windows PCs are identified by the Windows OpenSSH banner. A MacBook is discovered when its public SSH host fingerprint matches one submitted by its setup script or entered in Push Settings. The scan records supported devices without signing in.</p>
         <p>For an approved device with an applicable wallpaper, the server checks the full host key before authenticating, then verifies the operating system and checks MacBook hardware before uploading. It uses the local device admin account from Push Settings.</p>
         <ul className={list}>
           <li><strong>Windows</strong> uses a scheduled task to set the wallpaper for the signed-in user and reapply it at sign-in.</li>
@@ -91,23 +94,26 @@ export function Documentation() {
                 <p>Open Windows PowerShell with <strong>Run as administrator</strong> and run this command.</p>
                 <pre className={commandBlock}><code>{`irm '${setupScripts.windows}' | iex`}</code></pre>
                 <h3 className="mt-3 font-semibold text-slate-900">MacBook</h3>
-                <p>Open Terminal and run the setup script with <code>sudo</code>.</p>
-                <pre className={commandBlock}><code>{`curl -fsSL '${setupScripts.macos}' | sudo bash`}</code></pre>
+                <p>In <strong>Push Settings</strong>, enter the WallpaperWizard server URL the MacBook can reach and select <strong>Generate MacBook setup command</strong>. Paste the generated command into Terminal on the MacBook within 30 minutes. The script submits the fingerprint and prints a confirmation.</p>
+                <details className="mt-2">
+                  <summary className="cursor-pointer font-semibold">Manual enrollment</summary>
+                  <pre className={commandBlock}><code>{`curl -fsSL '${setupScripts.macos}' | sudo bash`}</code></pre>
+                  <p className="mt-2">Paste the complete <code>SHA256:</code> fingerprint from the script into <strong>MacBook fingerprints</strong> in Push Settings, one per line, then save.</p>
+                </details>
                 <p className="mt-2">If macOS requests Full Disk Access, setup opens the approval pane. Enable Terminal in <strong>Privacy &amp; Security → Full Disk Access</strong>, then quit and reopen Terminal before rerunning setup. You can also enable Remote Login directly in <strong>System Settings → General → Sharing</strong> and rerun setup.</p>
               </>
             ) : <p role="status">Loading setup commands…</p>}
           </li>
-          <li>Paste each MacBook’s complete <code>SHA256:</code> fingerprint on its own line in <strong>MacBook fingerprints</strong>. Use the value printed from the MacBook you manage. Save Push Settings before scanning.</li>
         </ol>
       </Section>
 
       <Section id="discover-devices" title="Discover and approve devices">
         <ol className="list-decimal space-y-2 pl-5">
           <li>Go to <strong>Devices</strong> and select <strong>Scan now</strong>. Discovered devices lists Windows PCs and enrolled MacBooks in the configured address ranges.</li>
-          <li>Verify each device before selecting <strong>Approve</strong>. Windows PCs enter as pending. MacBooks also enter as pending unless <strong>Auto-approve newly enrolled MacBooks</strong> is enabled.</li>
+          <li>Verify each device before selecting <strong>Approve</strong>. Windows PCs and MacBooks enrolled with a setup command require approval. <strong>Auto-approve manually enrolled MacBooks</strong> applies to fingerprints entered in Push Settings.</li>
           <li>Give a device a recognizable name and an optional group, such as Sales or Lobby. Set the status to <strong>Ignored</strong> to keep a device out of push runs.</li>
         </ol>
-        <p>On upgrade, rescan to restore Windows entries. Enroll existing MacBooks by fingerprint and rescan. The same host key preserves the saved device name, group, and approval. To withdraw MacBook enrollment, remove its fingerprint from Push Settings and save.</p>
+        <p>To withdraw a setup command enrollment, remove the record from Devices. If the fingerprint was entered manually, remove it from <strong>MacBook fingerprints</strong> in Push Settings.</p>
       </Section>
 
       <Section id="assign-wallpapers" title="Assign and schedule wallpapers">

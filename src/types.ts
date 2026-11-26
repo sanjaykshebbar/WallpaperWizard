@@ -63,7 +63,8 @@ export type DeviceStatus = 'pending' | 'approved' | 'ignored';
 
 export interface Device {
   id: string;              // Stable device ID derived from its SSH host key
-  sshFingerprint?: string; // Full OpenSSH SHA256 fingerprint, saved on discovery
+  sshFingerprint?: string; // Full OpenSSH SHA256 host fingerprint
+  enrolledBySetup?: boolean; // MacBook fingerprint submitted by the setup script
   ip: string;
   hostname: string | null;
   label: string | null;    // admin-assigned name
