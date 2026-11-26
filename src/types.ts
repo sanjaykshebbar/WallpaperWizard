@@ -62,11 +62,12 @@ export type DeviceOs = 'windows' | 'macos' | 'other';
 export type DeviceStatus = 'pending' | 'approved' | 'ignored';
 
 export interface Device {
-  id: string;              // SSH host-key fingerprint: stable across IP changes
+  id: string;              // Stable device ID derived from its SSH host key
+  sshFingerprint?: string; // Full OpenSSH SHA256 fingerprint, saved on discovery
   ip: string;
   hostname: string | null;
   label: string | null;    // admin-assigned name
-  os: DeviceOs | null;     // null until confirmed over SSH (or guessed from the banner)
+  os: DeviceOs | null;     // Legacy unclassified records may have a null OS
   group: string | null;
   status: DeviceStatus;
   firstSeen: string;
@@ -75,13 +76,20 @@ export interface Device {
   applied: { wallpaperId: string; version: string } | null; // version = wallpaper.updatedAt
 }
 
+export interface SetupDownloadUrls {
+  windows: string;
+  macos: string;
+}
+
 /** Network scan + push settings. The device password never leaves the server. */
 export interface PushSettings {
   username: string;
   hasPassword: boolean;
   scanRanges: string[];
+  macBookKeys: string[];
   intervalMinutes: number;
   autoApprove: boolean;
+  setupScripts: SetupDownloadUrls;
   updatedBy?: string | null;
   updatedAt?: string | null;
 }

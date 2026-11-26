@@ -31,17 +31,17 @@ const STEPS: TourStep[] = [
   {
     icon: <LayoutDashboard className="w-8 h-8 text-blue-600" />,
     title: 'Welcome to WallpaperWizard',
-    body: 'This dashboard sets the desktop wallpaper on your organization\'s Windows and macOS devices, with no agent installed on them. This quick tour shows the main steps; replay it any time from the sidebar.'
+    body: 'This dashboard sets the desktop wallpaper on your organization\'s Windows PCs and MacBooks without installing an agent. You can replay this tour from the sidebar.'
   },
   {
     icon: <KeyRound className="w-8 h-8 text-blue-600" />,
     title: '1. Save the device credentials',
-    body: 'Open the Push Settings tab and enter the local admin account every device shares (ithelpdesk by default) and its password, plus the network ranges to scan, like 192.168.1.0/24. Devices need SSH turned on: OpenSSH Server on Windows, Remote Login on macOS.'
+    body: 'Open Push Settings. Enter the device admin username and password, then add your network ranges. Run the setup command on each device and paste each MacBook fingerprint into Push Settings before saving.'
   },
   {
     icon: <Radar className="w-8 h-8 text-blue-600" />,
     title: '2. Scan and approve devices',
-    body: 'Click "Scan now" on the Devices tab. Each machine that answers on SSH appears as pending. Approve it, or Approve all; the password is only ever sent to approved devices. You can give devices a name and a group, like Sales or Lobby.'
+    body: 'Select Scan now in Devices to find Windows PCs and enrolled MacBooks. Verify a pending device before approving it. You can give each device a name and a group, such as Sales or Lobby.'
   },
   {
     icon: <UploadCloud className="w-8 h-8 text-blue-600" />,

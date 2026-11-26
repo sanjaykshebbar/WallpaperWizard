@@ -13,6 +13,7 @@ services:
       - NODE_ENV=production
       # Recommended: keep the password encryption key outside the data volume (see .env.example)
       - WW_SECRET_KEY=${WW_SECRET_KEY:-}
+      - WW_SETUP_BASE_URL=${WW_SETUP_BASE_URL:-}
     # Uncomment on Linux if devices can't be reached through Docker's bridge NAT
     # network_mode: host
 

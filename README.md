@@ -1,10 +1,10 @@
 # WallpaperWizard
 
-Self-hosted, **agentless** desktop wallpaper management for an organization's Windows and macOS devices.
+Self-hosted, **agentless** desktop wallpaper management for an organization's Windows PCs and MacBooks.
 
-The server scans the network ranges you give it, lists every device that answers on SSH, and once you approve a
-device it signs in with your shared local admin account (`ithelpdesk` by default), copies the wallpaper over and
-applies it for whoever is signed in. Nothing is installed on the devices.
+The server scans your configured network ranges and lists Windows OpenSSH hosts and MacBooks enrolled by SSH
+host fingerprint. After approval it signs in with the device admin account (`ithelpdesk` by default), copies the
+wallpaper, and applies it for the signed-in user.
 
 - **Targeting:** everyone, a group (e.g. `Sales`, `Lobby`), or a single device, with optional start/end schedule.
   The most specific match wins: device > group > everyone; ties go to the most recently edited wallpaper.
@@ -24,8 +24,14 @@ Open `http://<server>:8080`, create the superadmin account, then:
 
 1. **Push Settings** → enter the device admin username and password, and the ranges to scan
    (one per line: `192.168.1.0/24`, `10.20.0.15`; max `/20` per range).
-2. **Devices** → **Scan now**, then **Approve** (or **Approve all**) the devices you manage.
-3. **Wallpapers** → upload a JPG/PNG and choose who gets it.
+2. Run the device setup commands shown in Push Settings. Paste the fingerprint printed by each MacBook into
+   **MacBook fingerprints**, one per line, then save.
+3. **Devices** → **Scan now**, then **Approve** the devices you manage.
+4. **Wallpapers** → upload a JPG/PNG and choose who gets it.
+
+Open **Documentation** for the full setup guide or **Change Log** for version history. Both are next to **About**.
+After upgrading to 1.1.0, rescan Windows PCs and enroll existing MacBooks. Matching host keys preserve saved
+device names, groups, and approvals.
 
 All state lives in the `wallpaperwizard-data` volume (`/app/data`: `db.json`, `uploads/`, `secret.key`).
 Set `WW_SECRET_KEY` (any long random string) in `docker-compose.yml` to keep the password encryption key out of
@@ -37,24 +43,23 @@ network blocks NAT'd traffic, use `network_mode: host`.
 
 ## Device prerequisites (one-time)
 
-Each device needs SSH turned on once. The dashboard (Push Settings) shows a one-line command per OS that
-fetches a secret-free script from this server and enables SSH with no further clicks — run it as administrator:
+Each device needs SSH turned on once. Push Settings and Documentation show the setup commands. Run the
+Windows command in an elevated PowerShell and the MacBook command with sudo in Terminal. The commands
+fetch a commit-pinned copy of the scripts from GitHub over HTTPS.
 
-```powershell
-irm http://<server>:8080/setup/windows.ps1 | iex      # Windows, elevated PowerShell
-```
-```bash
-curl -fsSL http://<server>:8080/setup/macos.sh | sudo bash   # macOS, Terminal
-```
+On a MacBook, follow the terminal guidance if macOS requests Full Disk Access. You can enable Remote Login
+in Sharing settings and rerun the script with your existing Terminal permissions. Copy the fingerprint the
+script prints into Push Settings.
 
-With no domain or MDM, that one admin-run command per device is the minimum: nothing can enable SSH remotely
-before SSH exists. The scripts live in `public/setup/` and carry no credentials; keep the server on your LAN.
+To show a branded hostname in the commands, set `WW_SETUP_BASE_URL` to its HTTPS origin and route only
+`/setup/windows.ps1` and `/setup/macos.sh` on that hostname to WallpaperWizard. Those paths redirect to
+the pinned script downloads. Client devices need access to GitHub to follow the redirects.
 
 
 | OS | Enable | Notes |
 |----|--------|-------|
 | Windows 10/11 | OpenSSH Server: `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0`, `Set-Service sshd -StartupType Automatic`, `Start-Service sshd` (or deploy via GPO/Intune) | The wallpaper is applied through a scheduled task `WallpaperWizard` that runs as the signed-in user, now and at every logon. Files live in `C:\ProgramData\WallpaperWizard`. |
-| macOS | System Settings → General → Sharing → **Remote Login**, allowing the admin account | Applied with `osascript` as the console user. The first push may show a one-time "allow System Events" prompt on the Mac. If nobody is signed in, it retries next cycle. Files live in `/Users/Shared/WallpaperWizard`. |
+| MacBook | System Settings → General → Sharing → **Remote Login**, allowing the admin account | Applied with `osascript` as the console user. The first push may show a one-time "allow System Events" prompt. If nobody is signed in, it retries next cycle. Files live in `/Users/Shared/WallpaperWizard`. |
 
 The admin account must be able to `sudo` on macOS and be a local Administrator on Windows.
 

@@ -6,6 +6,8 @@ import dns from "dns";
 import multer from "multer";
 import { ipIsAllowed, isValidAllowlistEntry, normalizeIp, expandScanRange, MAX_SCAN_HOSTS } from "./src/shared/ipMatch";
 import { resolveWallpaper } from "./src/shared/resolveWallpaper";
+import { discoveredOs, isManagedDevice, isSshFingerprint } from "./src/shared/deviceDiscovery";
+import { setupDownloadUrls, setupPaths, setupSourceUrls } from "./src/shared/setupScripts";
 import { probeBanner, fetchHostFingerprint, pushWallpaper, mapLimit } from "./devicePush";
 import type { Wallpaper, Device, WorkerStatus } from "./src/types";
 
@@ -55,6 +57,7 @@ interface PushConfig {
   username: string;
   passwordEnc: string | null; // AES-256-GCM, see encryptSecret
   scanRanges: string[];
+  macBookKeys: string[];
   intervalMinutes: number;
   autoApprove: boolean;
   updatedBy?: string | null;
@@ -80,6 +83,7 @@ const DEFAULT_PUSH: PushConfig = {
   username: "ithelpdesk",
   passwordEnc: null,
   scanRanges: [],
+  macBookKeys: [],
   intervalMinutes: 15,
   autoApprove: false
 };
@@ -371,8 +375,7 @@ const upload = multer({
 });
 
 // --- Discovery + push worker ---
-// One cycle: scan the configured ranges for SSH, register devices by host-key
-// fingerprint, then push each approved device the wallpaper it should have.
+// Discover supported devices by host key, then push wallpapers to approved devices.
 
 const workerStatus: WorkerStatus = { running: false, lastRun: null };
 
@@ -386,44 +389,48 @@ function updateDevice(id: string, fn: (d: Device) => void) {
   }
 }
 
-async function discover(ranges: string[]): Promise<string[]> {
+async function discover(ranges: string[]): Promise<number> {
   const ips = [...new Set(ranges.flatMap(r => expandScanRange(r) || []))].slice(0, MAX_SCAN_HOSTS);
-  const seen: string[] = [];
+  const seen = new Set<string>();
   await mapLimit(ips, 64, async ip => {
     const banner = await probeBanner(ip);
     if (!banner) return;
-    const fp = await fetchHostFingerprint(ip);
-    if (!fp) return;
-    seen.push(fp);
-    const now = new Date().toISOString();
+    const key = await fetchHostFingerprint(ip);
+    if (!key) return;
     const db = readDb();
-    const guess = /windows/i.test(banner) ? "windows" : null;
-    let device = db.devices.find(d => d.id === fp);
+    const os = discoveredOs(banner, key.sha256, new Set(db.push.macBookKeys));
+    let device = db.devices.find(d => d.id === key.id);
+    // Clear the old address when a replacement answers, even if it's unsupported.
+    const replaced = db.devices.filter(d => d.id !== key.id && d.ip === ip);
+    for (const d of replaced) d.ip = "";
+    if (!os || device?.os === "other") {
+      if (replaced.length) writeDb(db);
+      return;
+    }
+    seen.add(key.id);
+    const now = new Date().toISOString();
     if (device) {
       device.ip = ip;
       device.lastSeen = now;
-      device.os = device.os || guess;
+      device.os = os;
+      device.sshFingerprint = key.sha256;
     } else {
       device = {
-        id: fp, ip, hostname: null, label: null, os: guess, group: null,
-        status: db.push.autoApprove ? "approved" : "pending",
+        id: key.id, sshFingerprint: key.sha256, ip, hostname: null, label: null, os, group: null,
+        status: os === "macos" && db.push.autoApprove ? "approved" : "pending",
         firstSeen: now, lastSeen: now, lastPush: null, applied: null
       };
       db.devices.push(device);
-      logAudit(db, null, "device.discover", "device", fp, `Discovered SSH host at ${ip} (${banner})`);
-    }
-    // An IP now owned by a different host key means the old record moved or was replaced
-    for (const other of db.devices) {
-      if (other.id !== fp && other.ip === ip) other.ip = "";
+      logAudit(db, null, "device.discover", "device", key.id, `Discovered ${os === "macos" ? "MacBook" : "Windows device"} at ${ip}`);
     }
     writeDb(db);
     if (!device.hostname) {
       dns.promises.reverse(ip).then(names => {
-        if (names[0]) updateDevice(fp, d => { d.hostname = d.hostname || names[0]; });
+        if (names[0]) updateDevice(key.id, d => { d.hostname = d.hostname || names[0]; });
       }).catch(() => { /* no PTR record: normal on many networks */ });
     }
   });
-  return seen;
+  return seen.size;
 }
 
 async function pushDevices(deviceIds: string[] | null, force: boolean): Promise<{ pushed: number; failed: number }> {
@@ -436,8 +443,9 @@ async function pushDevices(deviceIds: string[] | null, force: boolean): Promise<
     throw new Error("Saved device password can't be decrypted (was WW_SECRET_KEY changed?). Re-enter it in Push Settings.");
   }
   const creds = { username: db.push.username, password };
-  const targets = db.devices.filter(d =>
-    d.status === "approved" && d.ip && d.os !== "other" && (!deviceIds || deviceIds.includes(d.id))
+  const macBookKeys = new Set(db.push.macBookKeys);
+  const targets = db.devices.filter(d => isManagedDevice(d, macBookKeys)).filter(d =>
+    d.status === "approved" && d.ip && (!deviceIds || deviceIds.includes(d.id))
   );
   let pushed = 0;
   let failed = 0;
@@ -449,7 +457,7 @@ async function pushDevices(deviceIds: string[] | null, force: boolean): Promise<
     try {
       const data = fs.readFileSync(path.join(UPLOADS_DIR, path.basename(wallpaper.url)));
       const name = `wallpaper-${crypto.createHash("sha256").update(wallpaper.id + wallpaper.updatedAt).digest("hex").slice(0, 12)}${path.extname(wallpaper.url).toLowerCase()}`;
-      const result = await pushWallpaper(device.ip, device.id, creds, { name, data });
+      const result = await pushWallpaper(device.ip, device.sshFingerprint, creds, { name, data }, device.os);
       result.ok ? pushed++ : failed++;
       updateDevice(device.id, d => {
         d.os = result.os;
@@ -479,7 +487,7 @@ async function runCycle(opts: { scan: boolean; deviceIds?: string[] | null; forc
   workerStatus.lastRun = run;
   try {
     const { push } = readDb();
-    if (opts.scan) run.found = (await discover(push.scanRanges)).length;
+    if (opts.scan) run.found = await discover(push.scanRanges);
     if (!push.passwordEnc) run.note = "No device password saved; discovery only.";
     Object.assign(run, await pushDevices(opts.deviceIds ?? null, !!opts.force));
   } catch (err) {
@@ -503,6 +511,7 @@ function scheduleCycles() {
 async function startServer() {
   const app = express();
   const PORT = 3000;
+  const setupScripts = setupDownloadUrls(process.env.WW_SETUP_BASE_URL);
 
   // Respect X-Forwarded-For when running behind nginx/Docker ingress so the
   // IP restriction sees the real client address
@@ -514,6 +523,8 @@ async function startServer() {
 
   // Static files middleware for local uploaded media
   app.use("/uploads", express.static(UPLOADS_DIR));
+  app.get(setupPaths.windows, (_req, res) => res.redirect(setupSourceUrls.windows));
+  app.get(setupPaths.macos, (_req, res) => res.redirect(setupSourceUrls.macos));
 
   // --- API Endpoints for Self-Hosted Offline Docker Setup ---
 
@@ -972,7 +983,8 @@ async function startServer() {
 
   app.get("/api/devices", requireAuth, (req, res) => {
     const db = readDb();
-    res.json([...db.devices].sort((a, b) => b.lastSeen.localeCompare(a.lastSeen)));
+    const macBookKeys = new Set(db.push.macBookKeys);
+    res.json(db.devices.filter(d => isManagedDevice(d, macBookKeys)).sort((a, b) => b.lastSeen.localeCompare(a.lastSeen)));
   });
 
   app.post("/api/devices/:id", requireSuperadmin, (req, res) => {
@@ -983,7 +995,9 @@ async function startServer() {
     const db = readDb();
     const actor = (req as any).adminUser as UserRecord;
     const device = db.devices.find(d => d.id === req.params.id);
-    if (!device) return res.status(404).json({ error: "Device not found." });
+    if (!device || !isManagedDevice(device, new Set(db.push.macBookKeys))) {
+      return res.status(404).json({ error: "Device not found." });
+    }
     const changes: string[] = [];
     if (status !== undefined) { device.status = status; changes.push(`status=${status}`); }
     if (group !== undefined) { device.group = String(group || "").trim().slice(0, 64) || null; changes.push(`group=${device.group || "none"}`); }
@@ -1034,11 +1048,11 @@ async function startServer() {
 
   app.get("/api/push-settings", requireAuth, (req, res) => {
     const { passwordEnc, ...rest } = readDb().push;
-    res.json({ ...rest, hasPassword: !!passwordEnc });
+    res.json({ ...rest, hasPassword: !!passwordEnc, setupScripts });
   });
 
   app.post("/api/push-settings", requireSuperadmin, (req, res) => {
-    const { username, password, scanRanges, intervalMinutes, autoApprove } = req.body || {};
+    const { username, password, scanRanges, macBookKeys, intervalMinutes, autoApprove } = req.body || {};
     if (typeof username !== "string" || !/^[a-zA-Z0-9._@\\-]{1,64}$/.test(username)) {
       return res.status(400).json({ error: "Enter a valid device admin username." });
     }
@@ -1046,6 +1060,9 @@ async function startServer() {
     const badRanges = ranges.filter(r => !expandScanRange(r));
     if (badRanges.length) {
       return res.status(400).json({ error: `Invalid or too large ranges (max /20, ${MAX_SCAN_HOSTS} hosts): ${badRanges.join(", ")}` });
+    }
+    if (macBookKeys !== undefined && (!Array.isArray(macBookKeys) || !macBookKeys.every(isSshFingerprint))) {
+      return res.status(400).json({ error: "Enter one SHA256 fingerprint per MacBook, as printed by the setup script." });
     }
     const interval = Number(intervalMinutes);
     if (!Number.isInteger(interval) || interval < 5 || interval > 1440) {
@@ -1063,6 +1080,7 @@ async function startServer() {
       // Empty/missing password keeps the saved one; it is write-only from the dashboard
       passwordEnc: passwordChanged ? encryptSecret(password) : db.push.passwordEnc,
       scanRanges: ranges,
+      macBookKeys: macBookKeys === undefined ? db.push.macBookKeys : [...new Set<string>(macBookKeys)],
       intervalMinutes: interval,
       autoApprove: !!autoApprove,
       updatedBy: actor.id,
@@ -1073,7 +1091,7 @@ async function startServer() {
       for (const d of db.devices) if (d.lastPush && !d.lastPush.ok) d.applied = null;
     }
     logAudit(db, actor, "push.settings", "push", null,
-      `user=${username}${passwordChanged ? ", password updated" : ""}; ranges=[${ranges.join(", ") || "none"}]; every ${interval} min; autoApprove=${!!autoApprove}`);
+      `user=${username}${passwordChanged ? ", password updated" : ""}; ranges=[${ranges.join(", ") || "none"}]; MacBook keys=${db.push.macBookKeys.length}; every ${interval} min; autoApprove=${!!autoApprove}`);
     writeDb(db);
     res.json({ success: true });
   });

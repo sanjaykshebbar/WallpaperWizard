@@ -10,6 +10,7 @@
 import net from "net";
 import crypto from "crypto";
 import { Client } from "ssh2";
+import { isMacBook, type ManagedDeviceOs } from "./src/shared/deviceDiscovery";
 
 export interface Credentials {
   username: string;
@@ -29,24 +30,26 @@ export function probeBanner(ip: string, timeoutMs = 1500, port = 22): Promise<st
     };
     socket.setTimeout(timeoutMs, () => done(null));
     socket.on("error", () => done(null));
+    socket.on("close", () => resolve(null));
     socket.on("data", chunk => {
       buf += chunk.toString("latin1");
-      const line = buf.split(/\r?\n/).find(l => l.startsWith("SSH-"));
+      const line = buf.split(/\r?\n/).slice(0, -1).find(l => l.startsWith("SSH-"));
       if (line) done(line.trim().slice(0, 200));
       else if (buf.length > 4096) done(null);
     });
   });
 }
 
-export function fingerprint(key: Buffer): string {
-  return crypto.createHash("sha256").update(key).digest("hex").slice(0, 32);
+function fingerprint(key: Buffer): { id: string; sha256: string } {
+  const digest = crypto.createHash("sha256").update(key).digest();
+  return { id: digest.toString("hex").slice(0, 32), sha256: `SHA256:${digest.toString("base64").replace(/=+$/, "")}` };
 }
 
 /** Completes the SSH key exchange only (no login, no password sent) to learn the host-key fingerprint. */
-export function fetchHostFingerprint(ip: string): Promise<string | null> {
+export function fetchHostFingerprint(ip: string): Promise<ReturnType<typeof fingerprint> | null> {
   return new Promise(resolve => {
     const client = new Client();
-    let fp: string | null = null;
+    let fp: ReturnType<typeof fingerprint> | null = null;
     const finish = () => {
       client.end();
       resolve(fp);
@@ -87,7 +90,7 @@ function connect(ip: string, expectedFp: string, creds: Credentials): Promise<Cl
       tryKeyboard: true, // macOS sshd often offers keyboard-interactive instead of password
       readyTimeout: CONNECT_TIMEOUT_MS,
       hostVerifier: (key: Buffer) => {
-        keyMismatch = fingerprint(key) !== expectedFp;
+        keyMismatch = fingerprint(key).sha256 !== expectedFp;
         return !keyMismatch;
       }
     });
@@ -171,7 +174,8 @@ export async function pushWallpaper(
   ip: string,
   expectedFp: string,
   creds: Credentials,
-  image: { name: string; data: Buffer }
+  image: { name: string; data: Buffer },
+  expectedOs: ManagedDeviceOs
 ): Promise<PushResult> {
   if (!/^[a-zA-Z0-9._-]+$/.test(image.name)) throw new Error("Unsafe wallpaper file name.");
   const client = await connect(ip, expectedFp, creds);
@@ -180,6 +184,10 @@ export async function pushWallpaper(
     // `uname` exists on macOS; on Windows it fails in both cmd and PowerShell
     const uname = (await exec(client, "uname -s")).stdout;
     const os = uname === "Darwin" ? "macos" : (await exec(client, powershell("$env:OS"))).stdout === "Windows_NT" ? "windows" : "other";
+
+    if (os !== expectedOs) {
+      return { ok: false, applied: false, os: "other", hostname, message: "Device OS differs from its discovery record." };
+    }
 
     if (os === "windows") {
       const imagePath = `${WIN_DIR}\\${image.name}`;
@@ -196,6 +204,11 @@ export async function pushWallpaper(
     }
 
     if (os === "macos") {
+      const model = await exec(client, `/usr/sbin/system_profiler SPHardwareDataType -xml | /usr/bin/xmllint --nonet --xpath 'string((//key[.="machine_name"]/following-sibling::string[1])[1])' -`);
+      if (model.code !== 0 || !model.stdout) throw new Error("Could not read the Mac hardware model.");
+      if (!isMacBook(model.stdout)) {
+        return { ok: false, applied: false, os: "other", hostname, message: "Device hardware model is outside the MacBook family." };
+      }
       const imagePath = `${MAC_DIR}/${image.name}`;
       await exec(client, `mkdir -p ${MAC_DIR} && chmod 755 ${MAC_DIR} && rm -f ${MAC_DIR}/wallpaper-*`);
       await upload(client, imagePath, image.data);
@@ -210,8 +223,6 @@ export async function pushWallpaper(
       }
       return { ok: true, applied: true, os, hostname, message: `Applied for ${res.stdout.split("APPLIED:")[1]}` };
     }
-
-    return { ok: false, applied: false, os, hostname, message: "Not a Windows or macOS device; skipped." };
   } finally {
     client.end();
   }

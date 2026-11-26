@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useMatch, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme, ThemeName } from '../contexts/ThemeContext';
 import { WallpaperService } from '../services/wallpaperService';
@@ -21,7 +21,7 @@ import AboutModal from '../components/AboutModal';
 import { usePageTitle } from '../hooks/usePageTitle';
 import {
   LogOut, UploadCloud, Trash2, Pencil, Check, X, Calendar, AlertCircle, Sun, Moon, Scroll,
-  UserCog, GraduationCap, Users as UsersIcon, ShieldCheck, ScrollText, Info as InfoIcon,
+  UserCog, GraduationCap, Users as UsersIcon, ShieldCheck, ScrollText, Info as InfoIcon, BookOpen, History,
   Image as ImageIcon, Monitor, KeyRound, Radar, Send, Loader2, Apple, MonitorSmartphone, Ban, CheckCircle2
 } from 'lucide-react';
 
@@ -42,6 +42,8 @@ const deviceName = (d: Device) => d.label || d.hostname || d.ip || d.id.slice(0,
 const inputClass = 'w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 placeholder-slate-400';
 const btnPrimary = 'bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold px-3.5 py-2 rounded-lg text-xs flex items-center justify-center gap-1.5 cursor-pointer';
 const btnSecondary = 'bg-white hover:bg-slate-50 border border-slate-200 disabled:opacity-50 text-slate-700 font-semibold px-3 py-2 rounded-lg text-xs flex items-center justify-center gap-1.5 cursor-pointer';
+const sidebarItem = 'w-full flex items-center justify-center sm:justify-start gap-3 px-2 sm:px-3 py-2 rounded-md text-sm font-medium transition-all text-left cursor-pointer';
+const sidebarState = (active: boolean) => active ? 'bg-white/15 text-white shadow-inner' : 'text-white/60 hover:bg-white/10 hover:text-white';
 
 const EMPTY_FORM = { title: '', scope: 'org' as WallpaperScope, target: '', start: '', end: '', isActive: true };
 
@@ -50,8 +52,14 @@ export default function Admin() {
   const { user, logoutAdmin, isSuperadmin, tutorialSeen, markTutorialSeen } = useAuth();
   const { theme, setTheme } = useTheme();
 
-  const [tab, setTab] = useState<Tab>('wallpapers');
-  usePageTitle(tab === 'wallpapers' ? 'Wallpapers' : tab === 'devices' ? 'Devices' : 'Push Settings');
+  const [dashboardTab, setTab] = useState<Tab>('wallpapers');
+  const isChangeLog = useMatch('/admin/changelog');
+  const isDocumentation = useMatch('/admin/documentation');
+  const referencePage = !!(isChangeLog || isDocumentation);
+  const tab = referencePage ? null : dashboardTab;
+  const pageTitle = isChangeLog ? 'Change Log' : isDocumentation ? 'Documentation'
+    : tab === 'wallpapers' ? 'Wallpapers' : tab === 'devices' ? 'Devices' : 'Push Settings';
+  usePageTitle(pageTitle);
 
   const [wallpapers, setWallpapers] = useState<Wallpaper[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -69,7 +77,7 @@ export default function Admin() {
   const [editing, setEditing] = useState<Wallpaper | null>(null);
 
   // Push settings form
-  const [pushForm, setPushForm] = useState({ username: 'ithelpdesk', password: '', ranges: '', interval: 15, autoApprove: false });
+  const [pushForm, setPushForm] = useState({ username: 'ithelpdesk', password: '', ranges: '', macBookKeys: '', interval: 15, autoApprove: false });
 
   const flash = (ok: boolean, text: string) => setMessage({ ok, text });
   const fail = (err: unknown) => flash(false, err instanceof Error ? err.message : String(err));
@@ -92,7 +100,10 @@ export default function Admin() {
     refresh();
     DeviceService.getSettings().then(s => {
       setSettings(s);
-      setPushForm({ username: s.username, password: '', ranges: s.scanRanges.join('\n'), interval: s.intervalMinutes, autoApprove: s.autoApprove });
+      setPushForm({
+        username: s.username, password: '', ranges: s.scanRanges.join('\n'),
+        macBookKeys: s.macBookKeys.join('\n'), interval: s.intervalMinutes, autoApprove: s.autoApprove
+      });
     }).catch(() => {});
     // Live view of scans and pushes; local server, so a 5s poll is cheap
     const timer = setInterval(refresh, 5000);
@@ -100,8 +111,8 @@ export default function Admin() {
   }, [refresh]);
 
   useEffect(() => {
-    if (user && !tutorialSeen) setModal('tour');
-  }, [user, tutorialSeen]);
+    if (user && !tutorialSeen && !referencePage) setModal('tour');
+  }, [user, tutorialSeen, referencePage]);
 
   const groups = [...new Set(devices.map(d => d.group).filter(Boolean) as string[])].sort();
   const pending = devices.filter(d => d.status === 'pending');
@@ -224,6 +235,7 @@ export default function Admin() {
         username: pushForm.username.trim(),
         password: pushForm.password || undefined,
         scanRanges: pushForm.ranges.split(/[\s,]+/).filter(Boolean),
+        macBookKeys: pushForm.macBookKeys.split(/\r?\n/).map(key => key.trim()).filter(Boolean),
         intervalMinutes: Number(pushForm.interval),
         autoApprove: pushForm.autoApprove
       });
@@ -245,38 +257,44 @@ export default function Admin() {
 
   const running = !!worker?.running;
   const lastRun = worker?.lastRun;
-  const base = window.location.origin; // devices fetch the setup scripts from the same origin the dashboard is served at
+  const setupScripts = settings?.setupScripts;
 
   const navBtn = (id: Tab, icon: React.ReactNode, label: string, badge?: number) => (
     <button
-      onClick={() => { setTab(id); setMessage(null); }}
-      className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all text-left cursor-pointer ${
-        tab === id ? 'bg-white/15 text-white shadow-inner' : 'text-white/60 hover:bg-white/10 hover:text-white'
-      }`}
+      onClick={() => { setTab(id); setMessage(null); if (referencePage) navigate('/admin'); }}
+      className={`${sidebarItem} ${sidebarState(tab === id)}`}
+      title={label}
       aria-current={tab === id ? 'page' : undefined}
       id={`tab-${id}`}
     >
       {icon}
-      <span>{label}</span>
-      {!!badge && <span className="ml-auto text-[10px] font-bold bg-pink-500 text-white rounded-full px-1.5 min-w-5 text-center">{badge}</span>}
+      <span className="sr-only sm:not-sr-only">{label}</span>
+      {!!badge && <span className="hidden sm:inline ml-auto text-[10px] font-bold bg-pink-500 text-white rounded-full px-1.5 min-w-5 text-center">{badge}</span>}
     </button>
   );
 
   const sideBtn = (onClick: () => void, icon: React.ReactNode, label: string, id: string) => (
-    <button onClick={onClick} id={id} className="w-full flex items-center gap-3 px-3 py-2 text-white/60 hover:bg-white/10 hover:text-white rounded-md text-sm font-medium transition-all text-left cursor-pointer">
+    <button onClick={onClick} id={id} title={label} className={`${sidebarItem} ${sidebarState(false)}`}>
       {icon}
-      <span>{label}</span>
+      <span className="sr-only sm:not-sr-only">{label}</span>
     </button>
+  );
+
+  const pageLink = (to: string, icon: React.ReactNode, label: string) => (
+    <NavLink to={to} end title={label} className={({ isActive }) => `${sidebarItem} ${sidebarState(isActive)}`}>
+      {icon}
+      <span className="sr-only sm:not-sr-only">{label}</span>
+    </NavLink>
   );
 
   return (
     <div className="h-screen w-screen bg-[#F8FAFC] flex overflow-hidden font-sans text-slate-800" id="ww-dashboard">
-      <aside className="w-64 ww-sidebar flex flex-col shrink-0">
-        <div className="p-5 border-b border-white/10">
-          <Brand />
+      <aside className="w-14 sm:w-64 ww-sidebar flex flex-col shrink-0">
+        <div className="p-3 sm:p-5 border-b border-white/10">
+          <Brand compactOnMobile />
         </div>
 
-        <nav className="flex-1 p-4 space-y-6 overflow-y-auto" aria-label="Main">
+        <nav className="flex-1 p-2 sm:p-4 space-y-6 overflow-y-auto" aria-label="Main">
           <div className="space-y-1">
             {navBtn('wallpapers', <ImageIcon className="w-4 h-4" />, 'Wallpapers')}
             {navBtn('devices', <Monitor className="w-4 h-4" />, 'Devices', pending.length)}
@@ -285,7 +303,7 @@ export default function Admin() {
 
           {isSuperadmin && (
             <div>
-              <div className="text-white/40 text-[10px] px-3 mb-2 font-bold uppercase tracking-wider">Administration</div>
+              <div className="sr-only sm:not-sr-only text-white/40 text-[10px] px-3 mb-2 font-bold uppercase tracking-wider">Administration</div>
               <div className="space-y-1">
                 {sideBtn(() => setModal('users'), <UsersIcon className="w-4 h-4" />, 'Manage Users', 'manage-users-btn')}
                 {sideBtn(() => setModal('security'), <ShieldCheck className="w-4 h-4" />, 'Access Restrictions', 'ip-security-btn')}
@@ -295,34 +313,36 @@ export default function Admin() {
           )}
 
           <div>
-            <div className="text-white/40 text-[10px] px-3 mb-2 font-bold uppercase tracking-wider">Account</div>
+            <div className="sr-only sm:not-sr-only text-white/40 text-[10px] px-3 mb-2 font-bold uppercase tracking-wider">Account</div>
             <div className="space-y-1">
               {sideBtn(() => setModal('account'), <UserCog className="w-4 h-4" />, 'Account & Security', 'account-security-btn')}
               {sideBtn(() => setModal('tour'), <GraduationCap className="w-4 h-4" />, 'Show Tutorial', 'show-tutorial-btn')}
               {sideBtn(() => setModal('about'), <InfoIcon className="w-4 h-4" />, 'About', 'about-btn')}
+              {pageLink('/admin/changelog', <History className="w-4 h-4" />, 'Change Log')}
+              {pageLink('/admin/documentation', <BookOpen className="w-4 h-4" />, 'Documentation')}
             </div>
           </div>
         </nav>
 
-        <div className="p-4 border-t border-white/10 flex items-center gap-3">
+        <div className="p-2.5 sm:p-4 border-t border-white/10 flex items-center gap-3">
           <div className="w-9 h-9 rounded-full ww-logo text-white font-bold flex items-center justify-center text-sm">
             {(user?.email || 'A').slice(0, 2).toUpperCase()}
           </div>
-          <div className="truncate">
+          <div className="hidden sm:block truncate">
             <div className="text-xs font-bold text-white truncate" title={user?.email}>{user?.email}</div>
             <div className="text-[10px] text-white/50 uppercase tracking-wider font-semibold">{isSuperadmin ? 'Superadmin' : 'Editor'}</div>
           </div>
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
+      <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between gap-2 px-3 sm:px-8 shrink-0">
           <h1 className="text-base font-display font-bold text-slate-900">
-            {tab === 'wallpapers' ? 'Wallpapers' : tab === 'devices' ? 'Devices' : 'Push Settings'}
+            {pageTitle}
           </h1>
 
-          <div className="flex items-center gap-4">
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-bold uppercase tracking-widest ${
+          <div className="flex items-center gap-2 sm:gap-4">
+            <div className={`hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-bold uppercase tracking-widest ${
               running ? 'bg-blue-50 border-blue-100 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-500'
             }`} id="worker-badge" aria-live="polite">
               {running ? <Loader2 className="w-3 h-3 animate-spin" /> : <span className="w-2 h-2 rounded-full bg-emerald-500" />}
@@ -343,13 +363,14 @@ export default function Admin() {
             </div>
 
             <button id="logout-btn" onClick={handleExit} className="bg-white hover:bg-red-50 border border-slate-200 hover:border-red-200 text-slate-600 hover:text-red-700 px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
-              <LogOut className="w-3.5 h-3.5" /> Sign Out
+              <LogOut className="w-3.5 h-3.5" /> <span className="sr-only md:not-sr-only">Sign Out</span>
             </button>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8 space-y-6">
-          {message && (
+        <div className="flex-1 overflow-y-auto p-3 sm:p-8 space-y-6">
+          <Outlet context={setupScripts} />
+          {!referencePage && message && (
             <div role="status" className={`text-xs rounded-lg p-3 flex items-start gap-2 border font-medium ${message.ok ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-red-50 border-red-100 text-red-700'}`}>
               {message.ok ? <Check className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
               <span className="flex-1">{message.text}</span>
@@ -357,7 +378,7 @@ export default function Admin() {
             </div>
           )}
 
-          {settings && !settings.hasPassword && tab !== 'settings' && (
+          {!referencePage && settings && !settings.hasPassword && tab !== 'settings' && (
             <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-lg p-3 flex items-center gap-2">
               <KeyRound className="w-4 h-4 shrink-0" />
               <span className="flex-1">No device password saved yet, so wallpapers can't be pushed.{isSuperadmin ? ' Add it in Push Settings.' : ' Ask a superadmin to add it.'}</span>
@@ -526,8 +547,8 @@ export default function Admin() {
                   <MonitorSmartphone className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                   <h3 className="font-bold text-slate-800 text-sm mb-1">No devices found yet</h3>
                   <p className="text-xs text-slate-500 max-w-md mx-auto">
-                    Add your network ranges in Push Settings, then click "Scan now". Devices need SSH enabled
-                    (OpenSSH Server on Windows, Remote Login on macOS).
+                    Add your network ranges and any MacBook fingerprints in Push Settings, then select Scan now.
+                    Windows PCs need OpenSSH Server. MacBooks need Remote Login.
                   </p>
                 </div>
               ) : (
@@ -551,9 +572,8 @@ export default function Admin() {
                           <tr key={d.id} className={d.status === 'ignored' ? 'opacity-50' : ''}>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
-                                {d.os === 'macos' ? <Apple className="w-4 h-4 text-slate-500" aria-label="macOS" />
-                                  : d.os === 'windows' ? <Monitor className="w-4 h-4 text-blue-600" aria-label="Windows" />
-                                  : <MonitorSmartphone className="w-4 h-4 text-slate-400" aria-label="Unknown OS" />}
+                                {d.os === 'macos' ? <Apple className="w-4 h-4 text-slate-500" aria-label="MacBook" />
+                                  : <Monitor className="w-4 h-4 text-blue-600" aria-label="Windows" />}
                                 <div>
                                   {isSuperadmin ? (
                                     <input
@@ -640,7 +660,7 @@ export default function Admin() {
               <form onSubmit={saveSettings} className="xl:col-span-7 bg-white rounded-xl border border-slate-200 p-6 space-y-5" id="push-settings-form">
                 <div>
                   <h2 className="font-bold text-slate-900 text-sm flex items-center gap-2"><KeyRound className="w-4 h-4 text-blue-600" /> Device admin credentials</h2>
-                  <p className="text-[11px] text-slate-500 mt-1">The local admin account that exists on every Windows and macOS device. Used over SSH to set the wallpaper.</p>
+                  <p className="text-[11px] text-slate-500 mt-1">The local admin account on each managed Windows PC and MacBook. WallpaperWizard uses it over SSH to set the wallpaper.</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -667,6 +687,16 @@ export default function Admin() {
                     onChange={e => setPushForm({ ...pushForm, ranges: e.target.value })} placeholder={'192.168.1.0/24\n10.20.0.0/22'} />
                 </div>
 
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1" htmlFor="push-macbook-keys">MacBook fingerprints</label>
+                  <textarea id="push-macbook-keys" rows={3} className={`${inputClass} font-mono`} value={pushForm.macBookKeys}
+                    onChange={e => setPushForm({ ...pushForm, macBookKeys: e.target.value })}
+                    aria-describedby="macbook-keys-help" spellCheck={false} />
+                  <p id="macbook-keys-help" className="mt-1 text-[11px] text-slate-500">
+                    Paste one SHA256 fingerprint per line from the setup output on each MacBook. Save before scanning.
+                  </p>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1" htmlFor="push-interval">Rescan and re-push every (minutes)</label>
@@ -675,8 +705,8 @@ export default function Admin() {
                   <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
                     <input type="checkbox" className="mt-0.5 accent-violet-600" checked={pushForm.autoApprove} onChange={e => setPushForm({ ...pushForm, autoApprove: e.target.checked })} />
                     <span>
-                      Auto-approve new devices
-                      <span className="block text-[10px] text-amber-700">Sends the password to any SSH host found in your ranges. Leave off unless the ranges hold only your managed devices.</span>
+                      Auto-approve newly enrolled MacBooks
+                      <span className="block text-[10px] text-slate-500">New Windows PCs always require approval.</span>
                     </span>
                   </label>
                 </div>
@@ -692,18 +722,19 @@ export default function Admin() {
               <aside className="xl:col-span-5 bg-white rounded-xl border border-slate-200 p-6 space-y-4 text-xs text-slate-600 self-start">
                 <div>
                   <h2 className="font-bold text-slate-900 text-sm">One-line device setup</h2>
-                  <p className="mt-1">Run once per device, as administrator, to turn on SSH. These scripts hold <strong>no password</strong>. Devices fetch them from this server, so keep it on your LAN only.</p>
+                  <p className="mt-1">Run once per device, as administrator, to turn on SSH. The commands download a versioned copy of each script over HTTPS.</p>
                 </div>
                 <div>
                   <h3 className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5"><Monitor className="w-3.5 h-3.5 text-blue-600" /> Windows 10/11 — elevated PowerShell</h3>
-                  <pre className="bg-slate-900 text-slate-100 rounded-lg p-2.5 text-[10px] overflow-x-auto whitespace-pre-wrap select-all">{`irm ${base}/setup/windows.ps1 | iex`}</pre>
+                  {setupScripts && <pre className="bg-slate-900 text-slate-100 rounded-lg p-2.5 text-[10px] overflow-x-auto whitespace-pre-wrap select-all">{`irm '${setupScripts.windows}' | iex`}</pre>}
                 </div>
                 <div>
-                  <h3 className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5"><Apple className="w-3.5 h-3.5" /> macOS — Terminal</h3>
-                  <pre className="bg-slate-900 text-slate-100 rounded-lg p-2.5 text-[10px] overflow-x-auto whitespace-pre-wrap select-all">{`curl -fsSL ${base}/setup/macos.sh | sudo bash`}</pre>
-                  <p className="mt-1">Recent macOS may need Terminal to have Full Disk Access first, and the first wallpaper push shows a one-time "allow System Events" prompt.</p>
+                  <h3 className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5"><Apple className="w-3.5 h-3.5" /> MacBook — Terminal</h3>
+                  {setupScripts && <pre className="bg-slate-900 text-slate-100 rounded-lg p-2.5 text-[10px] overflow-x-auto whitespace-pre-wrap select-all">{`curl -fsSL '${setupScripts.macos}' | sudo bash`}</pre>}
+                  <p className="mt-1">Copy the printed fingerprint to MacBook fingerprints. Follow the instructions in Terminal if macOS needs your approval.</p>
                 </div>
-                <p>Devices must be able to reach this server and allow inbound TCP 22. SSH stays open to all local accounts; pushes sign in as <code className="text-slate-800">{pushForm.username || 'ithelpdesk'}</code>.</p>
+                {!setupScripts && <p role="status">Loading setup commands…</p>}
+                <p>Allow TCP 22 from the WallpaperWizard server to the devices. Pushes sign in as <code className="text-slate-800">{pushForm.username || 'ithelpdesk'}</code>.</p>
               </aside>
             </div>
           )}

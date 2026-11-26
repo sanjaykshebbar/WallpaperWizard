@@ -4,8 +4,7 @@
 
 import { X, Scale, ShieldCheck, EyeOff, Server, ExternalLink } from 'lucide-react';
 import Brand from './Brand';
-
-const APP_VERSION = '1.0.0';
+import { version } from '../../package.json';
 
 export default function AboutModal({ onClose }: { onClose: () => void }) {
   return (
@@ -14,7 +13,7 @@ export default function AboutModal({ onClose }: { onClose: () => void }) {
         <div className="ww-hero px-6 py-5 flex items-start justify-between">
           <div>
             <Brand />
-            <p className="text-[10px] text-white/60 font-mono mt-2">v{APP_VERSION} · self-hosted, agentless</p>
+            <p className="text-[10px] text-white/60 font-mono mt-2">v{version} · self-hosted, agentless</p>
           </div>
           <button onClick={onClose} className="text-white/70 hover:text-white p-1.5 rounded-lg cursor-pointer" id="about-modal-close" aria-label="Close">
             <X className="w-4 h-4" />
@@ -26,7 +25,7 @@ export default function AboutModal({ onClose }: { onClose: () => void }) {
             <Server className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
             <p>
               <strong className="text-slate-900">How it works.</strong> The server scans the network ranges you
-              configure for devices running SSH, and once you approve a device it signs in with the shared admin
+              configure for Windows PCs and enrolled MacBooks running SSH. Once you approve a device, it signs in with the shared admin
               account, copies the wallpaper over, and applies it for the signed-in user. Nothing is installed on
               the device except the image and, on Windows, a scheduled task that re-applies it at sign-in.
             </p>
