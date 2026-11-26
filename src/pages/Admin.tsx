@@ -704,6 +704,7 @@ export default function Admin() {
                 <div>
                   <h2 className="font-bold text-slate-900 text-sm">One-line device setup</h2>
                   <p className="mt-1">Run the current command as administrator on each device. The script checks the local ithelpdesk account, enables SSH, and adds the platform’s discovery marker.</p>
+                  <p className="mt-1">Open the dashboard using a LAN address or hostname that your devices can reach.</p>
                 </div>
                 <div>
                   <h3 className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5"><Monitor className="w-3.5 h-3.5 text-blue-600" /> Windows 10/11 — elevated PowerShell</h3>

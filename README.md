@@ -43,16 +43,16 @@ network blocks NAT'd traffic, use `network_mode: host`.
 ## Device prerequisites (one-time)
 
 Each device needs SSH turned on once. Push Settings and Documentation show the setup commands. Run the
-Windows command in an elevated PowerShell and the MacBook command with sudo in Terminal. The commands
-fetch a commit-pinned copy of the scripts from GitHub over HTTPS.
+Windows command in an elevated PowerShell and the MacBook command with sudo in Terminal. WallpaperWizard
+serves the scripts bundled with the installed application from [public/setup](public/setup/).
 
 On a MacBook, follow the terminal guidance if macOS requests Full Disk Access. You can enable Remote Login
 in Sharing settings and rerun the script with your existing Terminal permissions. Both setup scripts
 print their public discovery marker when setup completes.
 
-To show a branded hostname in the commands, set `WW_SETUP_BASE_URL` to its HTTPS origin and route only
-`/setup/windows.ps1` and `/setup/macos.sh` on that hostname to WallpaperWizard. Those paths redirect to
-the pinned script downloads. Client devices need access to GitHub to follow the redirects.
+Setup commands use the dashboard origin by default. Open the dashboard using an address that the devices
+can reach. Set `WW_SETUP_BASE_URL` to an alternate origin if your deployment needs one. Use HTTPS for a
+public deployment and route `/setup/windows.ps1` and `/setup/macos.sh` to the WallpaperWizard server.
 
 
 | OS | Enable | Notes |

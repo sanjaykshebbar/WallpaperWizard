@@ -18,8 +18,16 @@ export const DeviceService = {
     await api(`/api/devices/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
-  getSettings(): Promise<PushSettings> {
-    return api('/api/push-settings');
+  async getSettings(): Promise<PushSettings> {
+    const settings = await api<PushSettings>('/api/push-settings');
+    const url = (path: string) => new URL(path, window.location.origin).href.replaceAll("'", '%27');
+    return {
+      ...settings,
+      setupScripts: {
+        windows: url(settings.setupScripts.windows),
+        macos: url(settings.setupScripts.macos)
+      }
+    };
   },
 
   /** `password` is write-only: leave it empty to keep the saved one. */

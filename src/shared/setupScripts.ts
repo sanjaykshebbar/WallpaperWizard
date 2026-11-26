@@ -1,29 +1,21 @@
 import type { SetupDownloadUrls } from "../types";
 
-const revision = "4711f2153c71807fda285d0fabf6439a8b3ab323";
-const source = `https://raw.githubusercontent.com/sanjaykshebbar/lazy-code/${revision}`;
-
 export const setupPaths = {
   windows: "/setup/windows.ps1",
   macos: "/setup/macos.sh",
 };
 
-export const setupSourceUrls: SetupDownloadUrls = {
-  windows: `${source}/Windows/setup-wallpaperwizard.ps1`,
-  macos: `${source}/macOS/setup-wallpaperwizard.sh`,
-};
-
 export function setupDownloadUrls(baseUrl?: string): SetupDownloadUrls {
-  if (!baseUrl?.trim()) return setupSourceUrls;
+  if (!baseUrl?.trim()) return setupPaths;
 
-  const invalid = "WW_SETUP_BASE_URL must be an HTTPS origin, such as https://setup.example.com.";
+  const invalid = "WW_SETUP_BASE_URL must be an HTTP or HTTPS origin, such as https://setup.example.com.";
   let url: URL;
   try {
     url = new URL(baseUrl.trim());
   } catch {
     throw new Error(invalid);
   }
-  if (url.protocol !== "https:" || url.username || url.password || url.href !== `${url.origin}/`) {
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.href !== `${url.origin}/`) {
     throw new Error(invalid);
   }
 

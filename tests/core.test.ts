@@ -9,17 +9,19 @@ import { probeBanner, fetchHostFingerprint, pushWallpaper } from "../devicePush"
 import { DISCOVERY_MARKERS, discoveredOs, isManagedDevice, isMacBook } from "../src/shared/deviceDiscovery";
 import { setupDownloadUrls } from "../src/shared/setupScripts";
 
-test("setup commands use pinned GitHub downloads or an approved HTTPS hostname", () => {
-  const defaults = setupDownloadUrls();
-  assert.match(defaults.windows, /^https:\/\/raw\.githubusercontent\.com\/sanjaykshebbar\/lazy-code\/[a-f0-9]{40}\/Windows\/setup-wallpaperwizard\.ps1$/);
-  assert.match(defaults.macos, /^https:\/\/raw\.githubusercontent\.com\/sanjaykshebbar\/lazy-code\/[a-f0-9]{40}\/macOS\/setup-wallpaperwizard\.sh$/);
+test("setup commands expose only WallpaperWizard routes", () => {
+  assert.deepEqual(setupDownloadUrls(), {
+    windows: "/setup/windows.ps1",
+    macos: "/setup/macos.sh",
+  });
   assert.deepEqual(setupDownloadUrls("https://setup.example.test/"), {
     windows: "https://setup.example.test/setup/windows.ps1",
     macos: "https://setup.example.test/setup/macos.sh",
   });
-  assert.throws(() => setupDownloadUrls("http://setup.example.test"), /HTTPS origin/);
-  assert.throws(() => setupDownloadUrls("https://setup.example.test/path"), /HTTPS origin/);
-  assert.throws(() => setupDownloadUrls("https://user@setup.example.test"), /HTTPS origin/);
+  assert.equal(setupDownloadUrls("http://192.0.2.5:3000").macos, "http://192.0.2.5:3000/setup/macos.sh");
+  assert.throws(() => setupDownloadUrls("ftp://setup.example.test"), /HTTP or HTTPS origin/);
+  assert.throws(() => setupDownloadUrls("https://setup.example.test/path"), /HTTP or HTTPS origin/);
+  assert.throws(() => setupDownloadUrls("https://user@setup.example.test"), /HTTP or HTTPS origin/);
 });
 
 const wp = (id: string, scope: "org" | "group" | "device", target: string | null, extra: object = {}) => ({
