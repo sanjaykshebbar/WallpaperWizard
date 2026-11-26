@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import { version } from '../../package.json';
 import type { SetupDownloadUrls } from '../types';
+import { MAC_DEVICE_ADMIN, WINDOWS_DEVICE_ADMIN } from '../shared/deviceAccount';
 
 const link = 'text-blue-600 underline underline-offset-2 hover:no-underline';
 const list = 'list-disc space-y-2 pl-5';
@@ -28,6 +29,10 @@ export function ChangeLog() {
   return (
     <Article>
       <p className="font-medium text-slate-900">Installed version <code>v{version}</code></p>
+      <Section id="version-1-4" title="v1.4.0">
+        <p>Wallpaper pushes require the local ithelpdesk administrator account. The dashboard verifies the signed-in account and its administrator privileges on the device before changing a wallpaper.</p>
+        <Link className={link} to="/admin/script-changelog">Read the setup script changes</Link>
+      </Section>
       <Section id="version-1-3" title="v1.3.0">
         <p>Windows and MacBook setup now use a fixed discovery SHA marker per platform. Run the current setup command on each managed device, then scan. The server continues to pin each device’s own SSH host key and require approval for new devices.</p>
       </Section>
@@ -51,6 +56,34 @@ export function ChangeLog() {
         </ul>
       </Section>
       <Link className={link} to="/admin/documentation">Read the documentation</Link>
+    </Article>
+  );
+}
+
+export function ScriptChangeLog() {
+  const setupScripts = useOutletContext<SetupDownloadUrls | undefined>();
+  return (
+    <Article>
+      <p>The setup scripts prepare Windows PCs and MacBooks for discovery and wallpaper delivery. Use the current commands in Push Settings when configuring a device.</p>
+      <Section id="script-v1-4" title="v1.4.0 · Local administrator checks">
+        <ul className={list}>
+          <li>The Windows script checks that <code>{WINDOWS_DEVICE_ADMIN}</code> exists, is enabled, and belongs to the local Administrators group.</li>
+          <li>The MacBook script checks that <code>{MAC_DEVICE_ADMIN}</code> is a local administrator and reminds you to allow it in Remote Login settings.</li>
+        </ul>
+      </Section>
+      <Section id="script-v1-3" title="v1.3.0 · Discovery markers">
+        <p>Both setup scripts add a platform SHA marker to the SSH banner. The scripts validate the SSH configuration before applying it. Windows restarts OpenSSH to load the marker.</p>
+      </Section>
+      <Section id="script-v1-2" title="v1.2.0 · MacBook enrollment">
+        <p>The MacBook script supported one-use commands that submitted the host fingerprint to the server. v1.3.0 introduced discovery markers.</p>
+      </Section>
+      <Section id="script-v1-1" title="v1.1.0 · Setup progress and permissions">
+        <p>Both scripts added progress and recovery instructions. MacBook setup can open the Full Disk Access pane when macOS asks for approval.</p>
+      </Section>
+      {setupScripts && <div className="flex flex-wrap gap-x-5 gap-y-2">
+        <a className={link} href={setupScripts.windows} target="_blank" rel="noreferrer">Windows setup script</a>
+        <a className={link} href={setupScripts.macos} target="_blank" rel="noreferrer">MacBook setup script</a>
+      </div>}
     </Article>
   );
 }
@@ -87,7 +120,7 @@ export function Documentation() {
 
       <Section id="setup-devices" title="Set up Windows PCs and MacBooks">
         <ol className="list-decimal space-y-3 pl-5">
-          <li>Sign in as a superadmin. In <strong>Push Settings</strong>, enter the shared device admin username and password. The Windows account needs local administrator privileges. The MacBook account needs Remote Login access and permission to use sudo.</li>
+          <li>Sign in as a superadmin. In <strong>Push Settings</strong>, save the password for the required local administrator account. Use <code>{WINDOWS_DEVICE_ADMIN}</code> on Windows and <code>{MAC_DEVICE_ADMIN}</code> on MacBooks. Allow the MacBook account in Remote Login settings.</li>
           <li>Add the IP addresses or IPv4 CIDR ranges you manage, one per line. A single range can be as large as <code>/20</code>, and a scan checks up to 4,096 addresses across all ranges. The server must be able to reach device TCP port 22.</li>
           <li>
             Run the command for each client device. The commands download a versioned copy of the setup scripts over HTTPS.
@@ -135,7 +168,7 @@ export function Documentation() {
           <li><strong>Windows PC missing.</strong> Confirm OpenSSH Server is running, check TCP port 22 from the server and the firewall policy on the active network profile, and confirm the PC’s IP is in a scan range.</li>
           <li><strong>MacBook missing.</strong> Check Remote Login and the IP range. Run the current MacBook setup command and confirm it prints the discovery marker. If the host key has changed, verify the device before approving its new record.</li>
           <li><strong>Host key changed.</strong> Verify the device and new key with your administrator before approving the newly discovered record.</li>
-          <li><strong>Authentication failed.</strong> Correct the username or saved password in Push Settings and confirm the account can sign in over SSH on the device.</li>
+          <li><strong>Authentication or account check failed.</strong> Verify the saved password, confirm that the local ithelpdesk account has administrator privileges, and check that it can sign in over SSH.</li>
           <li><strong>MacBook wallpaper did not apply.</strong> Sign in to its desktop and allow System Events if prompted. Then retry the push or wait for the next cycle.</li>
         </ul>
         <p><a className={link} href="https://support.apple.com/guide/mac-help/allow-a-remote-computer-to-access-your-mac-mchlp1066/mac">Apple Remote Login guide</a>{' · '}<a className={link} href="https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh-server-configuration">Microsoft OpenSSH configuration</a></p>

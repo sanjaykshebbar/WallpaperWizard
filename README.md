@@ -22,13 +22,13 @@ docker compose up -d --build
 
 Open `http://<server>:8080`, create the superadmin account, then:
 
-1. **Push Settings** → enter the device admin username and password, and the ranges to scan
+1. **Push Settings** → save the local ithelpdesk password and the ranges to scan
    (one per line: `192.168.1.0/24`, `10.20.0.15`; max `/20` per range).
 2. Run the current Windows or MacBook setup command shown in Push Settings on each device.
 3. **Devices** → **Scan now**, then **Approve** the devices you manage.
 4. **Wallpapers** → upload a JPG/PNG and choose who gets it.
 
-Open **Documentation** for the full setup guide or **Change Log** for version history. Both are next to **About**.
+Open **Documentation** for the setup guide, **Change Log** for app history, or **Script Change Log** for setup script history. The repository also includes [architecture and troubleshooting](DESIGN.md).
 After upgrading to 1.3.0, rerun the current setup command on your existing devices before scanning.
 Matching host keys preserve saved names, groups, and approvals.
 
@@ -60,7 +60,8 @@ the pinned script downloads. Client devices need access to GitHub to follow the 
 | Windows 10/11 | OpenSSH Server: `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0`, `Set-Service sshd -StartupType Automatic`, `Start-Service sshd` (or deploy via GPO/Intune) | The wallpaper is applied through a scheduled task `WallpaperWizard` that runs as the signed-in user, now and at every logon. Files live in `C:\ProgramData\WallpaperWizard`. |
 | MacBook | System Settings → General → Sharing → **Remote Login**, allowing the admin account | Applied with `osascript` as the console user. The first push may show a one-time "allow System Events" prompt. If nobody is signed in, it retries next cycle. Files live in `/Users/Shared/WallpaperWizard`. |
 
-The admin account must be able to `sudo` on macOS and be a local Administrator on Windows.
+WallpaperWizard pushes use the local administrator account `ithelpdesk` on macOS and `.\ithelpdesk` on Windows.
+The setup commands check the account and its administrator privileges before configuring discovery.
 
 ## Develop
 

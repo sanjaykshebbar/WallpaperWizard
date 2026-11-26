@@ -11,11 +11,7 @@ import net from "net";
 import crypto from "crypto";
 import { Client } from "ssh2";
 import { isMacBook, type ManagedDeviceOs } from "./src/shared/deviceDiscovery";
-
-export interface Credentials {
-  username: string;
-  password: string;
-}
+import { MAC_DEVICE_ADMIN, WINDOWS_DEVICE_ADMIN } from "./src/shared/deviceAccount";
 
 const CONNECT_TIMEOUT_MS = 10_000;
 
@@ -73,7 +69,7 @@ export function fetchHostFingerprint(ip: string): Promise<ReturnType<typeof fing
  * Opens an authenticated session, refusing any host whose key does not match
  * the pinned fingerprint, so the password is never sent to an impostor.
  */
-function connect(ip: string, expectedFp: string, creds: Credentials): Promise<Client> {
+function connect(ip: string, expectedFp: string, username: string, password: string): Promise<Client> {
   return new Promise((resolve, reject) => {
     const client = new Client();
     let keyMismatch = false;
@@ -81,12 +77,12 @@ function connect(ip: string, expectedFp: string, creds: Credentials): Promise<Cl
     client.on("error", err =>
       reject(keyMismatch ? new Error("Host key changed since discovery; remove the device and rescan to trust it again.") : err)
     );
-    client.on("keyboard-interactive", (_name, _instr, _lang, prompts, reply) => reply(prompts.map(() => creds.password)));
+    client.on("keyboard-interactive", (_name, _instr, _lang, prompts, reply) => reply(prompts.map(() => password)));
     client.connect({
       host: ip,
       port: 22,
-      username: creds.username,
-      password: creds.password,
+      username,
+      password,
       tryKeyboard: true, // macOS sshd often offers keyboard-interactive instead of password
       readyTimeout: CONNECT_TIMEOUT_MS,
       hostVerifier: (key: Buffer) => {
@@ -131,6 +127,19 @@ function powershell(script: string): string {
 const WIN_DIR = "C:\\ProgramData\\WallpaperWizard";
 const MAC_DIR = "/Users/Shared/WallpaperWizard";
 
+const windowsAdminCheck = powershell(`$ErrorActionPreference = 'Stop'
+$local = Get-LocalUser -Name '${MAC_DEVICE_ADMIN}'
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = [Security.Principal.WindowsPrincipal]::new($identity)
+if (-not $local.Enabled -or $identity.User.Value -ne $local.SID.Value -or
+    -not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 1 }
+Write-Output 'WW_LOCAL_ADMIN'`);
+
+const macAdminCheck = `local_uid=$(/usr/bin/dscl /Local/Default -read /Users/${MAC_DEVICE_ADMIN} UniqueID | /usr/bin/awk '$1 == "UniqueID:" { print $2 }')
+[ -n "$local_uid" ] && [ "$local_uid" != 0 ] && [ "$(/usr/bin/id -u)" = "$local_uid" ] &&
+  [ "$(/usr/bin/id -un)" = "${MAC_DEVICE_ADMIN}" ] &&
+  /usr/bin/id -Gn | /usr/bin/grep -qw admin && printf 'WW_LOCAL_ADMIN\\n'`;
+
 export function windowsApplyScript(imagePath: string): string {
   // The task runs as whoever is signed in (BUILTIN\Users, S-1-5-32-545), at once and at every logon,
   // because wallpaper is per-user and an SSH session cannot reach the user's desktop directly.
@@ -173,12 +182,13 @@ export interface PushResult {
 export async function pushWallpaper(
   ip: string,
   expectedFp: string,
-  creds: Credentials,
+  password: string,
   image: { name: string; data: Buffer },
   expectedOs: ManagedDeviceOs
 ): Promise<PushResult> {
   if (!/^[a-zA-Z0-9._-]+$/.test(image.name)) throw new Error("Unsafe wallpaper file name.");
-  const client = await connect(ip, expectedFp, creds);
+  const username = expectedOs === "windows" ? WINDOWS_DEVICE_ADMIN : MAC_DEVICE_ADMIN;
+  const client = await connect(ip, expectedFp, username, password);
   try {
     const hostname = (await exec(client, "hostname")).stdout.split(/\r?\n/)[0] || null;
     // `uname` exists on macOS; on Windows it fails in both cmd and PowerShell
@@ -187,6 +197,11 @@ export async function pushWallpaper(
 
     if (os !== expectedOs) {
       return { ok: false, applied: false, os: "other", hostname, message: "Device OS differs from its discovery record." };
+    }
+
+    const identity = await exec(client, os === "windows" ? windowsAdminCheck : macAdminCheck);
+    if (identity.code !== 0 || identity.stdout !== "WW_LOCAL_ADMIN") {
+      return { ok: false, applied: false, os, hostname, message: `Wallpaper changes require the local ${username} administrator account.` };
     }
 
     if (os === "windows") {
@@ -213,7 +228,7 @@ export async function pushWallpaper(
       await exec(client, `mkdir -p ${MAC_DIR} && chmod 755 ${MAC_DIR} && rm -f ${MAC_DIR}/wallpaper-*`);
       await upload(client, imagePath, image.data);
       await exec(client, `chmod 644 ${imagePath}`);
-      const res = await exec(client, macApplyScript(imagePath), creds.password + "\n");
+      const res = await exec(client, macApplyScript(imagePath), password + "\n");
       if (res.stdout.includes("PENDING_LOGON")) {
         // shortcut: macOS has no logon hook without an agent/profile, so we retry each cycle until someone signs in
         return { ok: true, applied: false, os, hostname, message: "No one signed in; will retry next cycle." };

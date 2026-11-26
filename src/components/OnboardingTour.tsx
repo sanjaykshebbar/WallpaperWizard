@@ -36,7 +36,7 @@ const STEPS: TourStep[] = [
   {
     icon: <KeyRound className="w-8 h-8 text-blue-600" />,
     title: '1. Save the device credentials',
-    body: 'Open Push Settings. Enter the device admin credentials and add your network ranges. Run the current setup command on each device to configure its platform discovery marker.'
+    body: 'Open Push Settings. Save the local ithelpdesk password and add your network ranges. Run the current setup command on each device to check the account and configure discovery.'
   },
   {
     icon: <Radar className="w-8 h-8 text-blue-600" />,

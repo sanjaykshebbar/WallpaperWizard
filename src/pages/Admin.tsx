@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme, ThemeName } from '../contexts/ThemeContext';
 import { WallpaperService } from '../services/wallpaperService';
 import { DeviceService } from '../services/deviceService';
+import { MAC_DEVICE_ADMIN, WINDOWS_DEVICE_ADMIN } from '../shared/deviceAccount';
 import { resolveWallpaper, isLive } from '../shared/resolveWallpaper';
 import { Wallpaper, WallpaperScope, Device, PushSettings, WorkerStatus } from '../types';
 import InfoTip from '../components/InfoTip';
@@ -21,7 +22,7 @@ import AboutModal from '../components/AboutModal';
 import { usePageTitle } from '../hooks/usePageTitle';
 import {
   LogOut, UploadCloud, Trash2, Pencil, Check, X, Calendar, AlertCircle, Sun, Moon, Scroll,
-  UserCog, GraduationCap, Users as UsersIcon, ShieldCheck, ScrollText, Info as InfoIcon, BookOpen, History,
+  UserCog, GraduationCap, Users as UsersIcon, ShieldCheck, ScrollText, Info as InfoIcon, BookOpen, History, FileCode,
   Image as ImageIcon, Monitor, KeyRound, Radar, Send, Loader2, Apple, MonitorSmartphone, Ban, CheckCircle2
 } from 'lucide-react';
 
@@ -54,10 +55,11 @@ export default function Admin() {
 
   const [dashboardTab, setTab] = useState<Tab>('wallpapers');
   const isChangeLog = useMatch('/admin/changelog');
+  const isScriptChangeLog = useMatch('/admin/script-changelog');
   const isDocumentation = useMatch('/admin/documentation');
-  const referencePage = !!(isChangeLog || isDocumentation);
+  const referencePage = !!(isChangeLog || isScriptChangeLog || isDocumentation);
   const tab = referencePage ? null : dashboardTab;
-  const pageTitle = isChangeLog ? 'Change Log' : isDocumentation ? 'Documentation'
+  const pageTitle = isChangeLog ? 'Change Log' : isScriptChangeLog ? 'Script Change Log' : isDocumentation ? 'Documentation'
     : tab === 'wallpapers' ? 'Wallpapers' : tab === 'devices' ? 'Devices' : 'Push Settings';
   usePageTitle(pageTitle);
 
@@ -77,7 +79,7 @@ export default function Admin() {
   const [editing, setEditing] = useState<Wallpaper | null>(null);
 
   // Push settings form
-  const [pushForm, setPushForm] = useState({ username: 'ithelpdesk', password: '', ranges: '', interval: 15 });
+  const [pushForm, setPushForm] = useState({ password: '', ranges: '', interval: 15 });
 
   const flash = (ok: boolean, text: string) => setMessage({ ok, text });
   const fail = (err: unknown) => flash(false, err instanceof Error ? err.message : String(err));
@@ -101,7 +103,7 @@ export default function Admin() {
     DeviceService.getSettings().then(s => {
       setSettings(s);
       setPushForm({
-        username: s.username, password: '', ranges: s.scanRanges.join('\n'),
+        password: '', ranges: s.scanRanges.join('\n'),
         interval: s.intervalMinutes
       });
     }).catch(() => {});
@@ -232,7 +234,6 @@ export default function Admin() {
     setMessage(null);
     try {
       await DeviceService.saveSettings({
-        username: pushForm.username.trim(),
         password: pushForm.password || undefined,
         scanRanges: pushForm.ranges.split(/[\s,]+/).filter(Boolean),
         intervalMinutes: Number(pushForm.interval)
@@ -317,6 +318,7 @@ export default function Admin() {
               {sideBtn(() => setModal('tour'), <GraduationCap className="w-4 h-4" />, 'Show Tutorial', 'show-tutorial-btn')}
               {sideBtn(() => setModal('about'), <InfoIcon className="w-4 h-4" />, 'About', 'about-btn')}
               {pageLink('/admin/changelog', <History className="w-4 h-4" />, 'Change Log')}
+              {pageLink('/admin/script-changelog', <FileCode className="w-4 h-4" />, 'Script Change Log')}
               {pageLink('/admin/documentation', <BookOpen className="w-4 h-4" />, 'Documentation')}
             </div>
           </div>
@@ -657,13 +659,14 @@ export default function Admin() {
               <form onSubmit={saveSettings} className="xl:col-span-7 bg-white rounded-xl border border-slate-200 p-6 space-y-5" id="push-settings-form">
                 <div>
                   <h2 className="font-bold text-slate-900 text-sm flex items-center gap-2"><KeyRound className="w-4 h-4 text-blue-600" /> Device admin credentials</h2>
-                  <p className="text-[11px] text-slate-500 mt-1">The local admin account on each managed Windows PC and MacBook. WallpaperWizard uses it over SSH to set the wallpaper.</p>
+                  <p className="text-[11px] text-slate-500 mt-1">WallpaperWizard checks for the local administrator account before changing a wallpaper.</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1" htmlFor="push-user">Username</label>
-                    <input id="push-user" required autoComplete="off" className={inputClass} value={pushForm.username} onChange={e => setPushForm({ ...pushForm, username: e.target.value })} />
+                    <p className="mb-1 text-[11px] font-semibold text-slate-700">Local accounts</p>
+                    <p className="text-xs text-slate-600">Windows <code>{WINDOWS_DEVICE_ADMIN}</code></p>
+                    <p className="mt-1 text-xs text-slate-600">MacBook <code>{MAC_DEVICE_ADMIN}</code></p>
                   </div>
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1" htmlFor="push-pass">
@@ -674,7 +677,7 @@ export default function Admin() {
                       placeholder={settings?.hasPassword ? 'Leave blank to keep the saved password' : 'Required to push wallpapers'} />
                   </div>
                 </div>
-                <p className="text-[10px] text-slate-500 -mt-2">The password is encrypted on the server and never shown again. It is only sent to devices you approved.</p>
+                <p className="text-[10px] text-slate-500 -mt-2">Save the password for the local ithelpdesk account. WallpaperWizard encrypts it and sends it only to approved devices whose SSH host key matches.</p>
 
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1" htmlFor="push-ranges">
@@ -700,7 +703,7 @@ export default function Admin() {
               <aside className="xl:col-span-5 bg-white rounded-xl border border-slate-200 p-6 space-y-4 text-xs text-slate-600 self-start">
                 <div>
                   <h2 className="font-bold text-slate-900 text-sm">One-line device setup</h2>
-                  <p className="mt-1">Run the current command as administrator on each device, including devices you set up with an older script. The script enables SSH and adds the platform’s discovery marker.</p>
+                  <p className="mt-1">Run the current command as administrator on each device. The script checks the local ithelpdesk account, enables SSH, and adds the platform’s discovery marker.</p>
                 </div>
                 <div>
                   <h3 className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5"><Monitor className="w-3.5 h-3.5 text-blue-600" /> Windows 10/11 — elevated PowerShell</h3>

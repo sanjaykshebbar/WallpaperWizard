@@ -23,7 +23,7 @@ export const DeviceService = {
   },
 
   /** `password` is write-only: leave it empty to keep the saved one. */
-  async saveSettings(settings: Omit<PushSettings, 'hasPassword' | 'setupScripts' | 'updatedBy' | 'updatedAt'> & { password?: string }): Promise<void> {
+  async saveSettings(settings: Omit<PushSettings, 'username' | 'hasPassword' | 'setupScripts' | 'updatedBy' | 'updatedAt'> & { password?: string }): Promise<void> {
     await api('/api/push-settings', { json: settings });
   },
 

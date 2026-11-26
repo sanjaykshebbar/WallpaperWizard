@@ -10,7 +10,7 @@ import AccessGate from './components/AccessGate';
 import Setup from './pages/Setup';
 import Login from './pages/Login';
 import Admin from './pages/Admin';
-import { ChangeLog, Documentation } from './pages/HelpPages';
+import { ChangeLog, Documentation, ScriptChangeLog } from './pages/HelpPages';
 
 function Spinner({ label }: { label: string }) {
   return (
@@ -42,6 +42,7 @@ function AppRouting() {
           <Route path="/login" element={<Login />} />
           <Route path="/admin" element={<ProtectedAdminRoute><Admin /></ProtectedAdminRoute>}>
             <Route path="changelog" element={<ChangeLog />} />
+            <Route path="script-changelog" element={<ScriptChangeLog />} />
             <Route path="documentation" element={<Documentation />} />
           </Route>
           <Route path="*" element={<Navigate to="/admin" replace />} />

@@ -102,10 +102,10 @@ test("probeBanner reads the full SSH ident line and returns null for closed port
 
 test("host-key pinning: fingerprint is learned without auth, and a mismatched host never receives the password", async () => {
   const { private: hostKey } = ssh2.utils.generateKeyPairSync("ed25519");
-  const passwordsSeen: string[] = [];
+  const passwordsSeen: Array<{ username: string; password: string }> = [];
   const server = new ssh2.Server({ hostKeys: [hostKey] }, client => {
     client.on("authentication", ctx => {
-      if (ctx.method === "password") passwordsSeen.push(ctx.password);
+      if (ctx.method === "password") passwordsSeen.push({ username: ctx.username, password: ctx.password });
       ctx.reject();
     });
     client.on("error", () => {});
@@ -127,16 +127,23 @@ test("host-key pinning: fingerprint is learned without auth, and a mismatched ho
     assert.equal(passwordsSeen.length, 0);
 
     await assert.rejects(
-      pushWallpaper("127.0.0.1", "SHA256:" + "A".repeat(43), { username: "ithelpdesk", password: "secret" }, { name: "wallpaper-a.jpg", data: Buffer.from("x") }, "windows"),
+      pushWallpaper("127.0.0.1", "SHA256:" + "A".repeat(43), "secret", { name: "wallpaper-a.jpg", data: Buffer.from("x") }, "windows"),
       /Host key changed/
     );
     assert.equal(passwordsSeen.length, 0, "password must not be sent to an unpinned host");
 
     await assert.rejects(
-      pushWallpaper("127.0.0.1", expected.sha256, { username: "ithelpdesk", password: "secret" }, { name: "wallpaper-a.jpg", data: Buffer.from("x") }, "windows"),
+      pushWallpaper("127.0.0.1", expected.sha256, "secret", { name: "wallpaper-a.jpg", data: Buffer.from("x") }, "windows"),
       /authentication/i
     );
-    assert.deepEqual(passwordsSeen, ["secret"], "pinned host gets the password");
+    await assert.rejects(
+      pushWallpaper("127.0.0.1", expected.sha256, "secret", { name: "wallpaper-a.jpg", data: Buffer.from("x") }, "macos"),
+      /authentication/i
+    );
+    assert.deepEqual(passwordsSeen, [
+      { username: ".\\ithelpdesk", password: "secret" },
+      { username: "ithelpdesk", password: "secret" }
+    ], "pinned hosts only receive credentials for the configured local administrator");
   } finally {
     (ssh2.Client.prototype as any).connect = realConnect;
     server.close();
@@ -145,7 +152,50 @@ test("host-key pinning: fingerprint is learned without auth, and a mismatched ho
 
 test("unsafe wallpaper file names are refused before connecting", async () => {
   await assert.rejects(
-    pushWallpaper("127.0.0.1", "x", { username: "u", password: "p" }, { name: "a'; rm -rf /", data: Buffer.from("") }, "windows"),
+    pushWallpaper("127.0.0.1", "x", "p", { name: "a'; rm -rf /", data: Buffer.from("") }, "windows"),
     /Unsafe/
   );
+});
+
+test("wallpaper files are untouched when the authenticated session fails the local admin check", async () => {
+  const { private: hostKey } = ssh2.utils.generateKeyPairSync("ed25519");
+  let fileSessions = 0;
+  let platform: "windows" | "macos" = "windows";
+  const server = new ssh2.Server({ hostKeys: [hostKey] }, client => {
+    client.on("authentication", ctx => ctx.method === "password" ? ctx.accept() : ctx.reject());
+    client.on("error", () => {});
+    client.on("ready", () => client.on("session", accept => {
+      const session = accept();
+      session.on("sftp", (_accept, reject) => { fileSessions++; reject(); });
+      session.on("exec", (accept, _reject, info) => {
+        const stream = accept();
+        const encoded = info.command.split("-EncodedCommand ")[1];
+        const command = encoded ? Buffer.from(encoded, "base64").toString("utf16le") : info.command;
+        const output = command === "hostname" ? "test-device"
+          : command === "uname -s" && platform === "macos" ? "Darwin"
+          : command === "$env:OS" && platform === "windows" ? "Windows_NT" : "";
+        if (/New-Item|mkdir|Remove-Item/.test(command)) fileSessions++;
+        stream.exit(output ? 0 : 1);
+        stream.end(output);
+      });
+    }));
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as net.AddressInfo).port;
+  const realConnect = ssh2.Client.prototype.connect;
+  ssh2.Client.prototype.connect = function (config) { return realConnect.call(this, { ...config, port }); };
+  try {
+    const key = await fetchHostFingerprint("127.0.0.1");
+    assert.ok(key);
+    for (const os of ["windows", "macos"] as const) {
+      platform = os;
+      const result = await pushWallpaper("127.0.0.1", key.sha256, "secret", { name: "wallpaper-test.jpg", data: Buffer.from("x") }, os);
+      assert.equal(result.ok, false);
+      assert.match(result.message, /local .*ithelpdesk administrator account/);
+    }
+    assert.equal(fileSessions, 0);
+  } finally {
+    ssh2.Client.prototype.connect = realConnect;
+    server.close();
+  }
 });

@@ -7,6 +7,7 @@ import multer from "multer";
 import { ipIsAllowed, isValidAllowlistEntry, normalizeIp, expandScanRange, MAX_SCAN_HOSTS } from "./src/shared/ipMatch";
 import { resolveWallpaper } from "./src/shared/resolveWallpaper";
 import { DISCOVERY_MARKERS, discoveredOs, isManagedDevice } from "./src/shared/deviceDiscovery";
+import { isDeviceAdminUsername, MAC_DEVICE_ADMIN } from "./src/shared/deviceAccount";
 import { setupDownloadUrls, setupPaths, setupSourceUrls } from "./src/shared/setupScripts";
 import { probeBanner, fetchHostFingerprint, pushWallpaper, mapLimit } from "./devicePush";
 import type { Wallpaper, Device, WorkerStatus } from "./src/types";
@@ -78,11 +79,15 @@ interface DbSchema {
 }
 
 const DEFAULT_PUSH: PushConfig = {
-  username: "ithelpdesk",
+  username: MAC_DEVICE_ADMIN,
   passwordEnc: null,
   scanRanges: [],
   intervalMinutes: 15
 };
+
+function devicePassword(config: PushConfig): string | null {
+  return isDeviceAdminUsername(config.username) ? config.passwordEnc : null;
+}
 
 const DEFAULT_DB: DbSchema = {
   setupCompleted: false,
@@ -445,14 +450,14 @@ async function discover(ranges: string[]): Promise<number> {
 
 async function pushDevices(deviceIds: string[] | null, force: boolean): Promise<{ pushed: number; failed: number }> {
   const db = readDb();
-  if (!db.push.passwordEnc) return { pushed: 0, failed: 0 };
+  const passwordEnc = devicePassword(db.push);
+  if (!passwordEnc) return { pushed: 0, failed: 0 };
   let password: string;
   try {
-    password = decryptSecret(db.push.passwordEnc);
+    password = decryptSecret(passwordEnc);
   } catch {
     throw new Error("Saved device password can't be decrypted (was WW_SECRET_KEY changed?). Re-enter it in Push Settings.");
   }
-  const creds = { username: db.push.username, password };
   const targets = db.devices.filter(d => isManagedDevice(d)).filter(d =>
     d.status === "approved" && d.ip && (!deviceIds || deviceIds.includes(d.id))
   );
@@ -466,7 +471,7 @@ async function pushDevices(deviceIds: string[] | null, force: boolean): Promise<
     try {
       const data = fs.readFileSync(path.join(UPLOADS_DIR, path.basename(wallpaper.url)));
       const name = `wallpaper-${crypto.createHash("sha256").update(wallpaper.id + wallpaper.updatedAt).digest("hex").slice(0, 12)}${path.extname(wallpaper.url).toLowerCase()}`;
-      const result = await pushWallpaper(device.ip, device.sshFingerprint, creds, { name, data }, device.os);
+      const result = await pushWallpaper(device.ip, device.sshFingerprint, password, { name, data }, device.os);
       result.ok ? pushed++ : failed++;
       updateDevice(device.id, d => {
         d.os = result.os;
@@ -497,7 +502,7 @@ async function runCycle(opts: { scan: boolean; deviceIds?: string[] | null; forc
   try {
     const { push } = readDb();
     if (opts.scan) run.found = await discover(push.scanRanges);
-    if (!push.passwordEnc) run.note = "No device password saved; discovery only.";
+    if (!devicePassword(push)) run.note = "Save the local ithelpdesk password in Push Settings to enable pushes.";
     Object.assign(run, await pushDevices(opts.deviceIds ?? null, !!opts.force));
   } catch (err) {
     run.note = err instanceof Error ? err.message : String(err);
@@ -1048,21 +1053,22 @@ async function startServer() {
     if (ids !== undefined && (!Array.isArray(ids) || !ids.every((x: unknown) => typeof x === "string"))) {
       return res.status(400).json({ error: "deviceIds must be a list of device IDs." });
     }
-    if (!readDb().push.passwordEnc) return res.status(400).json({ error: "Save the device admin password in Push Settings first." });
+    if (!devicePassword(readDb().push)) return res.status(400).json({ error: "Save the local ithelpdesk password in Push Settings first." });
     if (workerStatus.running) return res.status(409).json({ error: "A scan or push is already running." });
     runCycle({ scan: false, deviceIds: ids || null, force: true });
     res.status(202).json({ started: true });
   });
 
   app.get("/api/push-settings", requireAuth, (req, res) => {
-    const { username, passwordEnc, scanRanges, intervalMinutes, updatedBy, updatedAt } = readDb().push;
-    res.json({ username, scanRanges, intervalMinutes, updatedBy, updatedAt, hasPassword: !!passwordEnc, setupScripts });
+    const push = readDb().push;
+    const { scanRanges, intervalMinutes, updatedBy, updatedAt } = push;
+    res.json({ username: MAC_DEVICE_ADMIN, scanRanges, intervalMinutes, updatedBy, updatedAt, hasPassword: !!devicePassword(push), setupScripts });
   });
 
   app.post("/api/push-settings", requireSuperadmin, (req, res) => {
     const { username, password, scanRanges, intervalMinutes } = req.body || {};
-    if (typeof username !== "string" || !/^[a-zA-Z0-9._@\\-]{1,64}$/.test(username)) {
-      return res.status(400).json({ error: "Enter a valid device admin username." });
+    if (username !== undefined && !isDeviceAdminUsername(username)) {
+      return res.status(400).json({ error: "Wallpaper pushes use the local ithelpdesk administrator account." });
     }
     const ranges: string[] = Array.isArray(scanRanges) ? scanRanges.map((r: unknown) => String(r).trim()).filter(Boolean) : [];
     const badRanges = ranges.filter(r => !expandScanRange(r));
@@ -1081,9 +1087,9 @@ async function startServer() {
     const actor = (req as any).adminUser as UserRecord;
     const passwordChanged = typeof password === "string" && password.length > 0;
     db.push = {
-      username,
+      username: MAC_DEVICE_ADMIN,
       // Empty/missing password keeps the saved one; it is write-only from the dashboard
-      passwordEnc: passwordChanged ? encryptSecret(password) : db.push.passwordEnc,
+      passwordEnc: passwordChanged ? encryptSecret(password) : devicePassword(db.push),
       scanRanges: ranges,
       intervalMinutes: interval,
       updatedBy: actor.id,
@@ -1094,7 +1100,7 @@ async function startServer() {
       for (const d of db.devices) if (d.lastPush && !d.lastPush.ok) d.applied = null;
     }
     logAudit(db, actor, "push.settings", "push", null,
-      `user=${username}${passwordChanged ? ", password updated" : ""}; ranges=[${ranges.join(", ") || "none"}]; every ${interval} min`);
+      `user=${MAC_DEVICE_ADMIN}${passwordChanged ? ", password updated" : ""}; ranges=[${ranges.join(", ") || "none"}]; every ${interval} min`);
     writeDb(db);
     res.json({ success: true });
   });
