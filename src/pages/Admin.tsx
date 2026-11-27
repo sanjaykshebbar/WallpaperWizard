@@ -9,6 +9,7 @@ import { useTheme, ThemeName } from '../contexts/ThemeContext';
 import { WallpaperService } from '../services/wallpaperService';
 import { DeviceService } from '../services/deviceService';
 import { MAC_DEVICE_ADMIN, WINDOWS_DEVICE_ADMIN } from '../shared/deviceAccount';
+import { isManagedDevice } from '../shared/deviceDiscovery';
 import { resolveWallpaper, isLive } from '../shared/resolveWallpaper';
 import { Wallpaper, WallpaperScope, Device, PushSettings, WorkerStatus } from '../types';
 import InfoTip from '../components/InfoTip';
@@ -39,6 +40,8 @@ function toLocalInput(iso: string | null): string {
 
 const fmt = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '');
 const deviceName = (d: Device) => d.label || d.hostname || d.ip || d.id.slice(0, 8);
+/** Enrolled = the setup script has run (SSH marker present); only these can be approved and pushed to. */
+const enrolled = (d: Device) => isManagedDevice(d);
 
 const inputClass = 'w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 placeholder-slate-400';
 const btnPrimary = 'bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold px-3.5 py-2 rounded-lg text-xs flex items-center justify-center gap-1.5 cursor-pointer';
@@ -117,7 +120,8 @@ export default function Admin() {
   }, [user, tutorialSeen, referencePage]);
 
   const groups = [...new Set(devices.map(d => d.group).filter(Boolean) as string[])].sort();
-  const pending = devices.filter(d => d.status === 'pending');
+  const pending = devices.filter(d => enrolled(d) && d.status === 'pending');
+  const needsSetup = devices.filter(d => !enrolled(d) && d.status !== 'ignored');
 
   // ---- Wallpapers ----
 
@@ -256,7 +260,12 @@ export default function Admin() {
 
   const running = !!worker?.running;
   const lastRun = worker?.lastRun;
-  const setupScripts = settings?.setupScripts;
+  // Make the setup commands copy-paste ready: resolve the server's path against the address
+  // the admin reached the dashboard on (the host's LAN IP), leaving an absolute WW_SETUP_BASE_URL as-is.
+  const setupScripts = settings?.setupScripts && {
+    windows: new URL(settings.setupScripts.windows, window.location.origin).href,
+    macos: new URL(settings.setupScripts.macos, window.location.origin).href,
+  };
 
   const navBtn = (id: Tab, icon: React.ReactNode, label: string, badge?: number) => (
     <button
@@ -430,7 +439,7 @@ export default function Admin() {
                       <label className="block text-[11px] font-semibold text-slate-700 mb-1" htmlFor="wp-device">Device</label>
                       <select id="wp-device" required className={inputClass} value={form.target} onChange={e => setForm({ ...form, target: e.target.value })}>
                         <option value="">Choose…</option>
-                        {devices.filter(d => d.status !== 'ignored').map(d => <option key={d.id} value={d.id}>{deviceName(d)}</option>)}
+                        {devices.filter(d => enrolled(d) && d.status !== 'ignored').map(d => <option key={d.id} value={d.id}>{deviceName(d)}</option>)}
                       </select>
                     </div>
                   )}
@@ -523,6 +532,7 @@ export default function Admin() {
                   <h2 className="font-bold text-slate-900 text-sm">Discovered devices</h2>
                   <p className="text-[11px] text-slate-500">
                     {devices.filter(d => d.status === 'approved').length} approved · {pending.length} pending
+                    {needsSetup.length > 0 && ` · ${needsSetup.length} need setup`}
                     {lastRun?.finishedAt && ` · last run found ${lastRun.found}, pushed ${lastRun.pushed}, failed ${lastRun.failed}`}
                     {lastRun?.note && ` · ${lastRun.note}`}
                   </p>
@@ -565,13 +575,15 @@ export default function Admin() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {devices.map(d => {
-                        const wp = resolveWallpaper<Wallpaper>(wallpapers, d);
+                        const ready = enrolled(d); // setup script has run on this device
+                        const wp = ready ? resolveWallpaper<Wallpaper>(wallpapers, d) : null;
                         const inSync = !!wp && d.applied?.wallpaperId === wp.id && d.applied.version === wp.updatedAt;
                         return (
                           <tr key={d.id} className={d.status === 'ignored' ? 'opacity-50' : ''}>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
-                                {d.os === 'macos' ? <Apple className="w-4 h-4 text-slate-500" aria-label="MacBook" />
+                                {!ready ? <MonitorSmartphone className="w-4 h-4 text-slate-400" aria-label="Unmanaged SSH host" />
+                                  : d.os === 'macos' ? <Apple className="w-4 h-4 text-slate-500" aria-label="MacBook" />
                                   : <Monitor className="w-4 h-4 text-blue-600" aria-label="Windows" />}
                                 <div>
                                   {isSuperadmin ? (
@@ -600,11 +612,15 @@ export default function Admin() {
                               ) : (d.group || '—')}
                             </td>
                             <td className="px-4 py-3">
-                              <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${
-                                d.status === 'approved' ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
-                                : d.status === 'pending' ? 'bg-amber-50 border-amber-200 text-amber-900'
-                                : 'bg-slate-100 border-slate-200 text-slate-500'
-                              }`}>{d.status}</span>
+                              {!ready ? (
+                                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border bg-violet-50 border-violet-200 text-violet-700" title="SSH is reachable but the setup script hasn't run, so this device can't receive wallpapers yet.">Needs setup</span>
+                              ) : (
+                                <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${
+                                  d.status === 'approved' ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
+                                  : d.status === 'pending' ? 'bg-amber-50 border-amber-200 text-amber-900'
+                                  : 'bg-slate-100 border-slate-200 text-slate-500'
+                                }`}>{d.status}</span>
+                              )}
                             </td>
                             <td className="px-4 py-3">
                               {wp ? (
@@ -615,7 +631,7 @@ export default function Admin() {
                                     ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" aria-label="Applied" />
                                     : <Loader2 className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-label="Not applied yet" />)}
                                 </span>
-                              ) : <span className="text-slate-400">None matches</span>}
+                              ) : <span className="text-slate-400">{ready ? 'None matches' : 'Run setup script'}</span>}
                             </td>
                             <td className="px-4 py-3 max-w-64">
                               {d.lastPush ? (
@@ -628,13 +644,13 @@ export default function Admin() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex gap-1.5 justify-end">
-                                {isSuperadmin && d.status !== 'approved' && (
+                                {ready && isSuperadmin && d.status !== 'approved' && (
                                   <button onClick={() => updateDevice(d, { status: 'approved' })} className={btnSecondary} aria-label={`Approve ${deviceName(d)}`}><Check className="w-3.5 h-3.5" /> Approve</button>
                                 )}
-                                {d.status === 'approved' && (
+                                {ready && d.status === 'approved' && (
                                   <button onClick={() => runAction(() => DeviceService.pushNow([d.id]), `Pushing to ${deviceName(d)}.`)} disabled={running || !wp} className={btnSecondary} aria-label={`Push to ${deviceName(d)}`}><Send className="w-3.5 h-3.5" /></button>
                                 )}
-                                {isSuperadmin && d.status !== 'ignored' && (
+                                {ready && isSuperadmin && d.status !== 'ignored' && (
                                   <button onClick={() => updateDevice(d, { status: 'ignored' })} className={btnSecondary} aria-label={`Ignore ${deviceName(d)}`} title="Ignore: never push to this device"><Ban className="w-3.5 h-3.5" /></button>
                                 )}
                                 {isSuperadmin && (

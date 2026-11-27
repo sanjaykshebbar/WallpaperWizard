@@ -1,4 +1,4 @@
-import type { Device } from "../types";
+import type { Device, DeviceOs } from "../types";
 
 export const DISCOVERY_MARKERS = {
   windows: "WW_WINDOWS_SHA256_7bd18925be67c4757a7dd7c9d4143179a406acd51120ae404b03a8c5d7daa69a",
@@ -15,6 +15,16 @@ export function discoveredOs(banner: string): ManagedDeviceOs | null {
   if (windows === macos) return null;
   const windowsSsh = /-OpenSSH_for_Windows_/.test(ident);
   return windows && windowsSsh ? "windows" : macos && !windowsSsh ? "macos" : null;
+}
+
+/**
+ * Best-effort OS for an SSH host that has NOT run the setup script (no marker).
+ * Windows announces itself in the ident; a plain OpenSSH ident could be macOS or
+ * Linux, so it stays "other" until enrollment plants the marker.
+ */
+export function bannerOs(banner: string): DeviceOs {
+  const ident = banner.split(/[ \t]+/)[0] || "";
+  return /^SSH-(?:2\.0|1\.99)-OpenSSH_for_Windows_/.test(ident) ? "windows" : "other";
 }
 
 export function isManagedDevice(

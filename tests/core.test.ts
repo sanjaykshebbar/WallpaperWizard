@@ -6,7 +6,7 @@ import ssh2 from "ssh2";
 import { resolveWallpaper } from "../src/shared/resolveWallpaper";
 import { expandScanRange } from "../src/shared/ipMatch";
 import { probeBanner, fetchHostFingerprint, pushWallpaper } from "../devicePush";
-import { DISCOVERY_MARKERS, discoveredOs, isManagedDevice, isMacBook } from "../src/shared/deviceDiscovery";
+import { DISCOVERY_MARKERS, discoveredOs, bannerOs, isManagedDevice, isMacBook } from "../src/shared/deviceDiscovery";
 import { setupDownloadUrls, setupSourceUrls } from "../src/shared/setupScripts";
 
 test("setup commands expose only WallpaperWizard routes", () => {
@@ -71,6 +71,13 @@ test("discovery requires the exact marker and the matching OpenSSH platform", ()
   assert.equal(discoveredOs(`${mac} ${DISCOVERY_MARKERS.windows}`), null);
   assert.equal(discoveredOs(`${mac} ${DISCOVERY_MARKERS.macos}extra`), null);
   assert.equal(discoveredOs(`${mac} ${DISCOVERY_MARKERS.macos} ${DISCOVERY_MARKERS.windows}`), null);
+});
+
+test("un-enrolled SSH hosts get a best-effort OS: Windows from its ident, everything else stays unknown", () => {
+  assert.equal(bannerOs("SSH-2.0-OpenSSH_for_Windows_9.5"), "windows");
+  assert.equal(bannerOs("SSH-2.0-OpenSSH_10.3"), "other"); // could be macOS or Linux; unknown until enrolled
+  assert.equal(bannerOs("SSH-2.0-OpenSSH_for_Windows_9.5 WW_WINDOWS_SHA256_x"), "windows");
+  assert.equal(bannerOs("SSH-2.0-Go"), "other");
 });
 
 test("the device list and push targets require both discovery and a pinned host fingerprint", () => {

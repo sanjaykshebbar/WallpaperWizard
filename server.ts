@@ -6,7 +6,7 @@ import dns from "dns";
 import multer from "multer";
 import { ipIsAllowed, isValidAllowlistEntry, normalizeIp, expandScanRange, MAX_SCAN_HOSTS } from "./src/shared/ipMatch";
 import { resolveWallpaper } from "./src/shared/resolveWallpaper";
-import { DISCOVERY_MARKERS, discoveredOs, isManagedDevice } from "./src/shared/deviceDiscovery";
+import { DISCOVERY_MARKERS, discoveredOs, bannerOs, isManagedDevice } from "./src/shared/deviceDiscovery";
 import { isDeviceAdminUsername, MAC_DEVICE_ADMIN } from "./src/shared/deviceAccount";
 import { setupDownloadUrls, setupPaths, setupSourceUrls } from "./src/shared/setupScripts";
 import { probeBanner, fetchHostFingerprint, pushWallpaper, mapLimit } from "./devicePush";
@@ -398,46 +398,35 @@ async function discover(ranges: string[]): Promise<number> {
   await mapLimit(ips, 64, async ip => {
     const banner = await probeBanner(ip);
     if (!banner) return;
-    const os = discoveredOs(banner);
-    if (!os) {
-      const db = readDb();
-      const unmarked = db.devices.find(d => d.ip === ip && d.discoveryMarker);
-      if (unmarked) {
-        unmarked.ip = "";
-        delete unmarked.discoveryMarker;
-        writeDb(db);
-      }
-      return;
-    }
+    const os = discoveredOs(banner); // windows|macos only when the setup marker is present
     const key = await fetchHostFingerprint(ip);
     if (!key) return;
     const db = readDb();
     let device = db.devices.find(d => d.id === key.id);
-    // Clear the old address when a replacement answers, even if it's unsupported.
-    const replaced = db.devices.filter(d => d.id !== key.id && d.ip === ip);
-    for (const d of replaced) d.ip = "";
-    if (device?.os === "other") {
-      if (replaced.length) writeDb(db);
-      return;
-    }
+    // Clear the old address when a replacement answers at this IP.
+    for (const d of db.devices.filter(d => d.id !== key.id && d.ip === ip)) d.ip = "";
     seen.add(key.id);
     const now = new Date().toISOString();
+    // Lost trust: an approved device whose identity changed, or that dropped its marker, must be re-approved.
+    const lostTrust = os ? device?.os !== os || device?.sshFingerprint !== key.sha256 : !!device?.discoveryMarker;
     if (device) {
-      if (device.status === "approved" && (device.os !== os || device.sshFingerprint !== key.sha256)) device.status = "pending";
+      if (device.status === "approved" && lostTrust) device.status = "pending";
       device.ip = ip;
       device.lastSeen = now;
-      device.os = os;
       device.sshFingerprint = key.sha256;
-      device.discoveryMarker = DISCOVERY_MARKERS[os];
     } else {
       device = {
-        id: key.id, sshFingerprint: key.sha256, discoveryMarker: DISCOVERY_MARKERS[os],
-        ip, hostname: null, label: null, os, group: null, status: "pending",
+        id: key.id, sshFingerprint: key.sha256,
+        ip, hostname: null, label: null, os: os ?? bannerOs(banner), group: null, status: "pending",
         firstSeen: now, lastSeen: now, lastPush: null, applied: null
       };
       db.devices.push(device);
-      logAudit(db, null, "device.discover", "device", key.id, `Discovered ${os === "macos" ? "MacBook" : "Windows device"} at ${ip}`);
+      logAudit(db, null, "device.discover", "device", key.id,
+        os ? `Enrolled ${os === "macos" ? "MacBook" : "Windows device"} at ${ip}` : `Found an SSH host at ${ip} (setup script not run yet)`);
     }
+    // Enrolled hosts carry the platform marker; un-enrolled ones keep a best-effort OS and no marker.
+    if (os) { device.os = os; device.discoveryMarker = DISCOVERY_MARKERS[os]; }
+    else { device.os = bannerOs(banner); delete device.discoveryMarker; }
     writeDb(db);
     if (!device.hostname) {
       dns.promises.reverse(ip).then(names => {
@@ -1015,7 +1004,8 @@ async function startServer() {
 
   app.get("/api/devices", requireAuth, (req, res) => {
     const db = readDb();
-    res.json(db.devices.filter(isManagedDevice).sort((a, b) => b.lastSeen.localeCompare(a.lastSeen)));
+    // Every SSH host we fingerprinted, enrolled or not; the client greens only enrolled ones.
+    res.json(db.devices.filter(d => d.sshFingerprint).sort((a, b) => b.lastSeen.localeCompare(a.lastSeen)));
   });
 
   app.post("/api/devices/:id", requireSuperadmin, (req, res) => {
