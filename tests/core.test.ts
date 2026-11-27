@@ -6,7 +6,7 @@ import ssh2 from "ssh2";
 import { resolveWallpaper } from "../src/shared/resolveWallpaper";
 import { expandScanRange } from "../src/shared/ipMatch";
 import { probeBanner, fetchHostFingerprint, pushWallpaper } from "../devicePush";
-import { DISCOVERY_MARKERS, discoveredOs, bannerOs, isManagedDevice, isMacBook } from "../src/shared/deviceDiscovery";
+import { bannerOs, hasPinnedKey, isMacBook } from "../src/shared/deviceDiscovery";
 import { setupDownloadUrls, setupSourceUrls, pickLanIp } from "../src/shared/setupScripts";
 
 test("setup commands expose only WallpaperWizard routes", () => {
@@ -70,34 +70,18 @@ test("scan ranges expand to hosts and reject oversized/invalid input", () => {
   assert.equal(expandScanRange("not-an-ip"), null);
 });
 
-test("discovery requires the exact marker and the matching OpenSSH platform", () => {
-  const windows = "SSH-2.0-OpenSSH_for_Windows_9.5";
-  const mac = "SSH-2.0-OpenSSH_10.3";
-  assert.equal(discoveredOs(`${windows} ${DISCOVERY_MARKERS.windows}`), "windows");
-  assert.equal(discoveredOs(`${mac} ${DISCOVERY_MARKERS.macos} existing-banner-text`), "macos");
-  assert.equal(discoveredOs(windows), null);
-  assert.equal(discoveredOs(mac), null);
-  assert.equal(discoveredOs(`${windows} ${DISCOVERY_MARKERS.macos}`), null);
-  assert.equal(discoveredOs(`${mac} ${DISCOVERY_MARKERS.windows}`), null);
-  assert.equal(discoveredOs(`${mac} ${DISCOVERY_MARKERS.macos}extra`), null);
-  assert.equal(discoveredOs(`${mac} ${DISCOVERY_MARKERS.macos} ${DISCOVERY_MARKERS.windows}`), null);
-});
-
-test("un-enrolled SSH hosts get a best-effort OS: Windows from its ident, everything else stays unknown", () => {
+test("OS from the SSH banner ident: Windows is reliable, everything else is 'other' until a push confirms it", () => {
   assert.equal(bannerOs("SSH-2.0-OpenSSH_for_Windows_9.5"), "windows");
-  assert.equal(bannerOs("SSH-2.0-OpenSSH_10.3"), "other"); // could be macOS or Linux; unknown until enrolled
-  assert.equal(bannerOs("SSH-2.0-OpenSSH_for_Windows_9.5 WW_WINDOWS_SHA256_x"), "windows");
+  assert.equal(bannerOs("SSH-2.0-OpenSSH_10.3"), "other"); // macOS and Linux look the same here
+  assert.equal(bannerOs("SSH-2.0-OpenSSH_10.5"), "other");
   assert.equal(bannerOs("SSH-2.0-Go"), "other");
 });
 
-test("the device list and push targets require both discovery and a pinned host fingerprint", () => {
+test("the device list and push targets require a pinned host key, nothing more", () => {
   const sshFingerprint = "SHA256:" + "A".repeat(43);
-  assert.equal(isManagedDevice({ os: "windows", sshFingerprint, discoveryMarker: DISCOVERY_MARKERS.windows }), true);
-  assert.equal(isManagedDevice({ os: "macos", sshFingerprint, discoveryMarker: DISCOVERY_MARKERS.macos }), true);
-  assert.equal(isManagedDevice({ os: "macos", sshFingerprint }), false);
-  assert.equal(isManagedDevice({ os: "windows", sshFingerprint, discoveryMarker: DISCOVERY_MARKERS.macos }), false);
-  assert.equal(isManagedDevice({ os: "macos", discoveryMarker: DISCOVERY_MARKERS.macos }), false);
-  assert.equal(isManagedDevice({ os: "other", sshFingerprint, discoveryMarker: DISCOVERY_MARKERS.macos }), false);
+  assert.equal(hasPinnedKey({ sshFingerprint }), true);
+  assert.equal(hasPinnedKey({ sshFingerprint: "" }), false);
+  assert.equal(hasPinnedKey({}), false);
 });
 
 test("only MacBook hardware models qualify for macOS wallpaper pushes", () => {

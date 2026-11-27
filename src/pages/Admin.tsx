@@ -9,7 +9,6 @@ import { useTheme, ThemeName } from '../contexts/ThemeContext';
 import { WallpaperService } from '../services/wallpaperService';
 import { DeviceService } from '../services/deviceService';
 import { MAC_DEVICE_ADMIN, WINDOWS_DEVICE_ADMIN } from '../shared/deviceAccount';
-import { isManagedDevice } from '../shared/deviceDiscovery';
 import { resolveWallpaper, isLive } from '../shared/resolveWallpaper';
 import { Wallpaper, WallpaperScope, Device, PushSettings, WorkerStatus } from '../types';
 import InfoTip from '../components/InfoTip';
@@ -40,8 +39,8 @@ function toLocalInput(iso: string | null): string {
 
 const fmt = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '');
 const deviceName = (d: Device) => d.label || d.hostname || d.ip || d.id.slice(0, 8);
-/** Enrolled = the setup script has run (SSH marker present); only these can be approved and pushed to. */
-const enrolled = (d: Device) => isManagedDevice(d);
+/** Managed = a push has signed in as the local ithelpdesk admin and applied a wallpaper — proof the device is set up. */
+const managed = (d: Device) => !!d.lastPush?.ok;
 
 const inputClass = 'w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 placeholder-slate-400';
 const btnPrimary = 'bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold px-3.5 py-2 rounded-lg text-xs flex items-center justify-center gap-1.5 cursor-pointer';
@@ -120,8 +119,7 @@ export default function Admin() {
   }, [user, tutorialSeen, referencePage]);
 
   const groups = [...new Set(devices.map(d => d.group).filter(Boolean) as string[])].sort();
-  const pending = devices.filter(d => enrolled(d) && d.status === 'pending');
-  const needsSetup = devices.filter(d => !enrolled(d) && d.status !== 'ignored');
+  const pending = devices.filter(d => d.status === 'pending');
 
   // ---- Wallpapers ----
 
@@ -439,7 +437,7 @@ export default function Admin() {
                       <label className="block text-[11px] font-semibold text-slate-700 mb-1" htmlFor="wp-device">Device</label>
                       <select id="wp-device" required className={inputClass} value={form.target} onChange={e => setForm({ ...form, target: e.target.value })}>
                         <option value="">Choose…</option>
-                        {devices.filter(d => enrolled(d) && d.status !== 'ignored').map(d => <option key={d.id} value={d.id}>{deviceName(d)}</option>)}
+                        {devices.filter(d => d.status !== 'ignored').map(d => <option key={d.id} value={d.id}>{deviceName(d)}</option>)}
                       </select>
                     </div>
                   )}
@@ -531,8 +529,7 @@ export default function Admin() {
                 <div>
                   <h2 className="font-bold text-slate-900 text-sm">Discovered devices</h2>
                   <p className="text-[11px] text-slate-500">
-                    {devices.filter(d => d.status === 'approved').length} approved · {pending.length} pending
-                    {needsSetup.length > 0 && ` · ${needsSetup.length} need setup`}
+                    {devices.filter(managed).length} managed · {devices.filter(d => d.status === 'approved').length} approved · {pending.length} pending
                     {lastRun?.finishedAt && ` · last run found ${lastRun.found}, pushed ${lastRun.pushed}, failed ${lastRun.failed}`}
                     {lastRun?.note && ` · ${lastRun.note}`}
                   </p>
@@ -575,16 +572,16 @@ export default function Admin() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {devices.map(d => {
-                        const ready = enrolled(d); // setup script has run on this device
-                        const wp = ready ? resolveWallpaper<Wallpaper>(wallpapers, d) : null;
+                        const isManaged = managed(d); // a push has signed in and applied → device is set up
+                        const wp = resolveWallpaper<Wallpaper>(wallpapers, d);
                         const inSync = !!wp && d.applied?.wallpaperId === wp.id && d.applied.version === wp.updatedAt;
                         return (
                           <tr key={d.id} className={d.status === 'ignored' ? 'opacity-50' : ''}>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
-                                {!ready ? <MonitorSmartphone className="w-4 h-4 text-slate-400" aria-label="Unmanaged SSH host" />
-                                  : d.os === 'macos' ? <Apple className="w-4 h-4 text-slate-500" aria-label="MacBook" />
-                                  : <Monitor className="w-4 h-4 text-blue-600" aria-label="Windows" />}
+                                {d.os === 'macos' ? <Apple className="w-4 h-4 text-slate-500" aria-label="MacBook" />
+                                  : d.os === 'windows' ? <Monitor className="w-4 h-4 text-blue-600" aria-label="Windows" />
+                                  : <MonitorSmartphone className="w-4 h-4 text-slate-400" aria-label="SSH host, OS unconfirmed" />}
                                 <div>
                                   {isSuperadmin ? (
                                     <input
@@ -612,14 +609,14 @@ export default function Admin() {
                               ) : (d.group || '—')}
                             </td>
                             <td className="px-4 py-3">
-                              {!ready ? (
-                                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border bg-violet-50 border-violet-200 text-violet-700" title="SSH is reachable but the setup script hasn't run, so this device can't receive wallpapers yet.">Needs setup</span>
+                              {isManaged ? (
+                                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border bg-emerald-50 border-emerald-100 text-emerald-700" title="Signed in as the local ithelpdesk admin and applied a wallpaper.">Managed</span>
                               ) : (
                                 <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${
-                                  d.status === 'approved' ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
+                                  d.status === 'approved' ? 'bg-blue-50 border-blue-200 text-blue-700'
                                   : d.status === 'pending' ? 'bg-amber-50 border-amber-200 text-amber-900'
                                   : 'bg-slate-100 border-slate-200 text-slate-500'
-                                }`}>{d.status}</span>
+                                }`} title={d.status === 'approved' ? 'Approved; a push will verify it can sign in as the ithelpdesk admin.' : d.status === 'pending' ? 'Reachable over SSH; approve to let a push verify and manage it.' : 'Ignored; never pushed to.'}>{d.status === 'approved' ? 'Approved' : d.status}</span>
                               )}
                             </td>
                             <td className="px-4 py-3">
@@ -631,7 +628,7 @@ export default function Admin() {
                                     ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" aria-label="Applied" />
                                     : <Loader2 className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-label="Not applied yet" />)}
                                 </span>
-                              ) : <span className="text-slate-400">{ready ? 'None matches' : 'Run setup script'}</span>}
+                              ) : <span className="text-slate-400">None matches</span>}
                             </td>
                             <td className="px-4 py-3 max-w-64">
                               {d.lastPush ? (
@@ -644,13 +641,13 @@ export default function Admin() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex gap-1.5 justify-end">
-                                {ready && isSuperadmin && d.status !== 'approved' && (
+                                {isSuperadmin && d.status !== 'approved' && (
                                   <button onClick={() => updateDevice(d, { status: 'approved' })} className={btnSecondary} aria-label={`Approve ${deviceName(d)}`}><Check className="w-3.5 h-3.5" /> Approve</button>
                                 )}
-                                {ready && d.status === 'approved' && (
+                                {d.status === 'approved' && (
                                   <button onClick={() => runAction(() => DeviceService.pushNow([d.id]), `Pushing to ${deviceName(d)}.`)} disabled={running || !wp} className={btnSecondary} aria-label={`Push to ${deviceName(d)}`}><Send className="w-3.5 h-3.5" /></button>
                                 )}
-                                {ready && isSuperadmin && d.status !== 'ignored' && (
+                                {isSuperadmin && d.status !== 'ignored' && (
                                   <button onClick={() => updateDevice(d, { status: 'ignored' })} className={btnSecondary} aria-label={`Ignore ${deviceName(d)}`} title="Ignore: never push to this device"><Ban className="w-3.5 h-3.5" /></button>
                                 )}
                                 {isSuperadmin && (
@@ -719,7 +716,7 @@ export default function Admin() {
               <aside className="xl:col-span-5 bg-white rounded-xl border border-slate-200 p-6 space-y-4 text-xs text-slate-600 self-start">
                 <div>
                   <h2 className="font-bold text-slate-900 text-sm">One-line device setup</h2>
-                  <p className="mt-1">Run the current command as administrator on each device. The script checks the local ithelpdesk account, enables SSH, and adds the platform’s discovery marker.</p>
+                  <p className="mt-1">Run the current command as administrator on each device. The script enables SSH and ensures the local ithelpdesk administrator account. Then scan, approve the device, and push — the first push confirms it signed in and marks it Managed.</p>
                   <p className="mt-1">Open the dashboard using a LAN address or hostname that your devices can reach.</p>
                 </div>
                 <div>

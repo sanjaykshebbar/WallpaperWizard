@@ -7,7 +7,7 @@ import os from "os";
 import multer from "multer";
 import { ipIsAllowed, isValidAllowlistEntry, normalizeIp, expandScanRange, MAX_SCAN_HOSTS } from "./src/shared/ipMatch";
 import { resolveWallpaper } from "./src/shared/resolveWallpaper";
-import { DISCOVERY_MARKERS, discoveredOs, bannerOs, isManagedDevice } from "./src/shared/deviceDiscovery";
+import { bannerOs, hasPinnedKey } from "./src/shared/deviceDiscovery";
 import { isDeviceAdminUsername, MAC_DEVICE_ADMIN } from "./src/shared/deviceAccount";
 import { setupDownloadUrls, setupPaths, setupSourceUrls, pickLanIp } from "./src/shared/setupScripts";
 import { probeBanner, fetchHostFingerprint, pushWallpaper, mapLimit } from "./devicePush";
@@ -397,37 +397,34 @@ async function discover(ranges: string[]): Promise<number> {
   const ips = [...new Set(ranges.flatMap(r => expandScanRange(r) || []))].slice(0, MAX_SCAN_HOSTS);
   const seen = new Set<string>();
   await mapLimit(ips, 64, async ip => {
-    const banner = await probeBanner(ip);
+    const banner = await probeBanner(ip, 2500);
     if (!banner) return;
-    const os = discoveredOs(banner); // windows|macos only when the setup marker is present
     const key = await fetchHostFingerprint(ip);
     if (!key) return;
+    const os = bannerOs(banner); // "windows" (reliable) or "other"; macOS is confirmed later by a push
     const db = readDb();
     let device = db.devices.find(d => d.id === key.id);
     // Clear the old address when a replacement answers at this IP.
     for (const d of db.devices.filter(d => d.id !== key.id && d.ip === ip)) d.ip = "";
     seen.add(key.id);
     const now = new Date().toISOString();
-    // Lost trust: an approved device whose identity changed, or that dropped its marker, must be re-approved.
-    const lostTrust = os ? device?.os !== os || device?.sshFingerprint !== key.sha256 : !!device?.discoveryMarker;
     if (device) {
-      if (device.status === "approved" && lostTrust) device.status = "pending";
+      // A changed host key is a different machine; approval (the trust gate) must be earned again.
+      if (device.status === "approved" && device.sshFingerprint && device.sshFingerprint !== key.sha256) device.status = "pending";
       device.ip = ip;
       device.lastSeen = now;
       device.sshFingerprint = key.sha256;
+      // Never downgrade an OS a push already confirmed as macOS; otherwise keep the banner guess current.
+      if (device.os !== "macos") device.os = os;
     } else {
       device = {
         id: key.id, sshFingerprint: key.sha256,
-        ip, hostname: null, label: null, os: os ?? bannerOs(banner), group: null, status: "pending",
+        ip, hostname: null, label: null, os, group: null, status: "pending",
         firstSeen: now, lastSeen: now, lastPush: null, applied: null
       };
       db.devices.push(device);
-      logAudit(db, null, "device.discover", "device", key.id,
-        os ? `Enrolled ${os === "macos" ? "MacBook" : "Windows device"} at ${ip}` : `Found an SSH host at ${ip} (setup script not run yet)`);
+      logAudit(db, null, "device.discover", "device", key.id, `Discovered SSH host at ${ip}${os === "windows" ? " (Windows)" : ""}`);
     }
-    // Enrolled hosts carry the platform marker; un-enrolled ones keep a best-effort OS and no marker.
-    if (os) { device.os = os; device.discoveryMarker = DISCOVERY_MARKERS[os]; }
-    else { device.os = bannerOs(banner); delete device.discoveryMarker; }
     writeDb(db);
     if (!device.hostname) {
       dns.promises.reverse(ip).then(names => {
@@ -448,7 +445,7 @@ async function pushDevices(deviceIds: string[] | null, force: boolean): Promise<
   } catch {
     throw new Error("Saved device password can't be decrypted (was WW_SECRET_KEY changed?). Re-enter it in Push Settings.");
   }
-  const targets = db.devices.filter(d => isManagedDevice(d)).filter(d =>
+  const targets = db.devices.filter(hasPinnedKey).filter(d =>
     d.status === "approved" && d.ip && (!deviceIds || deviceIds.includes(d.id))
   );
   let pushed = 0;
@@ -461,7 +458,9 @@ async function pushDevices(deviceIds: string[] | null, force: boolean): Promise<
     try {
       const data = fs.readFileSync(path.join(UPLOADS_DIR, path.basename(wallpaper.url)));
       const name = `wallpaper-${crypto.createHash("sha256").update(wallpaper.id + wallpaper.updatedAt).digest("hex").slice(0, 12)}${path.extname(wallpaper.url).toLowerCase()}`;
-      const result = await pushWallpaper(device.ip, device.sshFingerprint, password, { name, data }, device.os);
+      // Windows is known from the banner; anything else is attempted as macOS, and pushWallpaper
+      // verifies the real OS + ithelpdesk admin, failing cleanly if the host isn't actually manageable.
+      const result = await pushWallpaper(device.ip, device.sshFingerprint, password, { name, data }, device.os === "windows" ? "windows" : "macos");
       result.ok ? pushed++ : failed++;
       updateDevice(device.id, d => {
         d.os = result.os;
@@ -1009,8 +1008,8 @@ async function startServer() {
 
   app.get("/api/devices", requireAuth, (req, res) => {
     const db = readDb();
-    // Every SSH host we fingerprinted, enrolled or not; the client greens only enrolled ones.
-    res.json(db.devices.filter(d => d.sshFingerprint).sort((a, b) => b.lastSeen.localeCompare(a.lastSeen)));
+    // Every SSH host we pinned a key for; the client greens the ones a push has confirmed manageable.
+    res.json(db.devices.filter(hasPinnedKey).sort((a, b) => b.lastSeen.localeCompare(a.lastSeen)));
   });
 
   app.post("/api/devices/:id", requireSuperadmin, (req, res) => {
@@ -1021,7 +1020,7 @@ async function startServer() {
     const db = readDb();
     const actor = (req as any).adminUser as UserRecord;
     const device = db.devices.find(d => d.id === req.params.id);
-    if (!device || !isManagedDevice(device)) {
+    if (!device || !hasPinnedKey(device)) {
       return res.status(404).json({ error: "Device not found." });
     }
     const changes: string[] = [];
