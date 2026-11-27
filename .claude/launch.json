@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "wallpaperwizard-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "/private/tmp/claude-502/-Users-shubrat--claude-spares-spare-AkiFjC/50350bd2-c3c2-49bc-b6bc-63d5ab779e47/scratchpad/node/node-v22.23.5-darwin-arm64/bin/node",
+      "runtimeArgs": ["node_modules/tsx/dist/cli.mjs", "server.ts"],
       "port": 3000
     }
   ]
