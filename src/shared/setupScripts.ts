@@ -13,6 +13,18 @@ export const setupSourceUrls: SetupDownloadUrls = {
   macos: githubSource + setupPaths.macos,
 };
 
+/** First non-internal IPv4 address from os.networkInterfaces(), or null — the host address devices can reach. */
+export function pickLanIp(
+  interfaces: Record<string, Array<{ family: string | number; internal: boolean; address: string }> | undefined>
+): string | null {
+  for (const iface of Object.values(interfaces)) {
+    for (const info of iface || []) {
+      if (!info.internal && (info.family === "IPv4" || info.family === 4)) return info.address;
+    }
+  }
+  return null;
+}
+
 export function setupDownloadUrls(baseUrl?: string): SetupDownloadUrls {
   if (!baseUrl?.trim()) return setupPaths;
 

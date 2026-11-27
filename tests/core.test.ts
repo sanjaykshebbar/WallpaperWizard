@@ -7,7 +7,7 @@ import { resolveWallpaper } from "../src/shared/resolveWallpaper";
 import { expandScanRange } from "../src/shared/ipMatch";
 import { probeBanner, fetchHostFingerprint, pushWallpaper } from "../devicePush";
 import { DISCOVERY_MARKERS, discoveredOs, bannerOs, isManagedDevice, isMacBook } from "../src/shared/deviceDiscovery";
-import { setupDownloadUrls, setupSourceUrls } from "../src/shared/setupScripts";
+import { setupDownloadUrls, setupSourceUrls, pickLanIp } from "../src/shared/setupScripts";
 
 test("setup commands expose only WallpaperWizard routes", () => {
   assert.deepEqual(setupDownloadUrls(), {
@@ -24,6 +24,16 @@ test("setup commands expose only WallpaperWizard routes", () => {
   assert.throws(() => setupDownloadUrls("ftp://setup.example.test"), /HTTP or HTTPS origin/);
   assert.throws(() => setupDownloadUrls("https://setup.example.test/path"), /HTTP or HTTPS origin/);
   assert.throws(() => setupDownloadUrls("https://user@setup.example.test"), /HTTP or HTTPS origin/);
+});
+
+test("pickLanIp returns the first non-internal IPv4, skipping loopback and IPv6", () => {
+  assert.equal(pickLanIp({
+    lo0: [{ family: "IPv4", internal: true, address: "127.0.0.1" }],
+    en0: [{ family: "IPv6", internal: false, address: "fe80::1" }, { family: "IPv4", internal: false, address: "192.168.1.42" }]
+  }), "192.168.1.42");
+  assert.equal(pickLanIp({ en0: [{ family: 4, internal: false, address: "10.0.0.5" }] }), "10.0.0.5"); // numeric family (older Node)
+  assert.equal(pickLanIp({ lo0: [{ family: "IPv4", internal: true, address: "127.0.0.1" }] }), null);
+  assert.equal(pickLanIp({}), null);
 });
 
 const wp = (id: string, scope: "org" | "group" | "device", target: string | null, extra: object = {}) => ({

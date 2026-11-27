@@ -3,12 +3,13 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import dns from "dns";
+import os from "os";
 import multer from "multer";
 import { ipIsAllowed, isValidAllowlistEntry, normalizeIp, expandScanRange, MAX_SCAN_HOSTS } from "./src/shared/ipMatch";
 import { resolveWallpaper } from "./src/shared/resolveWallpaper";
 import { DISCOVERY_MARKERS, discoveredOs, bannerOs, isManagedDevice } from "./src/shared/deviceDiscovery";
 import { isDeviceAdminUsername, MAC_DEVICE_ADMIN } from "./src/shared/deviceAccount";
-import { setupDownloadUrls, setupPaths, setupSourceUrls } from "./src/shared/setupScripts";
+import { setupDownloadUrls, setupPaths, setupSourceUrls, pickLanIp } from "./src/shared/setupScripts";
 import { probeBanner, fetchHostFingerprint, pushWallpaper, mapLimit } from "./devicePush";
 import type { Wallpaper, Device, WorkerStatus } from "./src/types";
 
@@ -532,7 +533,11 @@ function serveSetupScript(source: string): express.RequestHandler {
 async function startServer() {
   const app = express();
   const PORT = 3000;
-  const setupScripts = setupDownloadUrls(process.env.WW_SETUP_BASE_URL);
+  // Default the setup-command host to this machine's LAN IP so the command is copy-paste ready
+  // even when the dashboard is opened on localhost.
+  // shortcut: picks the first non-internal IPv4; set WW_SETUP_BASE_URL on multi-NIC hosts or behind a proxy.
+  const lanIp = pickLanIp(os.networkInterfaces());
+  const setupScripts = setupDownloadUrls(process.env.WW_SETUP_BASE_URL || (lanIp ? `http://${lanIp}:${PORT}` : undefined));
 
   // Respect X-Forwarded-For when running behind nginx/Docker ingress so the
   // IP restriction sees the real client address
